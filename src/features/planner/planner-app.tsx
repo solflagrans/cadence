@@ -14,7 +14,6 @@ import type {
   PlanItem,
   PlannerData,
   Route,
-  WeekPlan,
 } from "@/app/lib/types";
 import {
   addDays,
@@ -27,6 +26,7 @@ import {
   monthIdForWeek,
   monthName,
   parseDate,
+  pluralize,
   startOfWeek,
   uid,
   weekIdFor,
@@ -167,7 +167,6 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
               }
               onClick={() => navigate({ page: item.page } as Route)}
             >
-              <Icon name={item.icon} size={18} />
               <span>{item.label}</span>
             </button>
           ))}
@@ -224,11 +223,15 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
                 <strong>
                   {saveIssue.kind === "conflict"
                     ? "Данные изменены на другом устройстве"
+                    : saveIssue.kind === "local"
+                      ? "Не удалось сохранить локальную копию"
                     : "Не удалось сохранить данные в облаке"}
                 </strong>
                 <span>
                   {saveIssue.kind === "conflict"
                     ? "Выберите, какую версию оставить."
+                    : saveIssue.kind === "local"
+                      ? "Проверьте доступ к хранилищу браузера и свободное место."
                     : "Локальная резервная копия сохранена на этом устройстве."}
                 </span>
               </div>
@@ -318,6 +321,7 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
           close={() => setModal(null)}
           update={update}
           setModal={setModal}
+          localOnly={localOnly}
         />
       )}
       {authOpen && (
@@ -337,10 +341,10 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
               после входа в аккаунт.
             </p>
             <div className="migration-summary">
-              <span><strong>{accountMigration.summary.directions}</strong> направлений</span>
-              <span><strong>{accountMigration.summary.months}</strong> месяцев</span>
-              <span><strong>{accountMigration.summary.weeks}</strong> недель</span>
-              <span><strong>{accountMigration.summary.completions}</strong> выполнений</span>
+              <span><strong>{accountMigration.summary.directions}</strong> {pluralize(accountMigration.summary.directions, ["направление", "направления", "направлений"])}</span>
+              <span><strong>{accountMigration.summary.months}</strong> {pluralize(accountMigration.summary.months, ["месяц", "месяца", "месяцев"])}</span>
+              <span><strong>{accountMigration.summary.weeks}</strong> {pluralize(accountMigration.summary.weeks, ["неделя", "недели", "недель"])}</span>
+              <span><strong>{accountMigration.summary.completions}</strong> {pluralize(accountMigration.summary.completions, ["выполнение", "выполнения", "выполнений"])}</span>
             </div>
             <button
               className="migration-option migration-option-primary"
@@ -503,7 +507,7 @@ function Overview({ data, setModal }: { data: PlannerData; setModal: (m: ModalSt
   const attention = [
     !month && { text: "Текущий месяц не запланирован", action: () => navigate({ page: "month", id: monthId }) },
     !week && { text: "Текущая неделя не запланирована", action: () => navigate({ page: "week", id: weekId }) },
-    selectedDay?.segments.some((segment) => segment.activityId === "projects") &&
+    selectedDay?.segments.length > 0 &&
       !selectedDay.workStart && { text: "Не указан рабочий период", action: () => setModal({ kind: "work", date: selectedDay.date }) },
   ].filter(Boolean) as { text: string; action: () => void }[];
 
@@ -721,6 +725,7 @@ function MonthPage({
   setModal: (m: ModalState) => void;
 }) {
   const month = data.months.find((item) => item.id === monthId);
+  const currentWeekId = weekIdFor(new Date());
   const base = parseDate(`${monthId}-01`);
   const weeks = Array.from({ length: 6 }, (_, index) => {
     const first = startOfWeek(addDays(base, index * 7));
@@ -746,7 +751,16 @@ function MonthPage({
       <div className="week-tabs">
         {weeks.map((id) => {
           const exists = data.weeks.some((week) => week.id === id);
-          return <button key={id} className={exists ? "planned" : ""} onClick={() => navigate({ page: "week", id })}>{weekLabel(id)}{exists && <i />}</button>;
+          return (
+            <button
+              key={id}
+              className={`${exists ? "planned" : ""} ${id === currentWeekId ? "current-week" : ""}`}
+              onClick={() => navigate({ page: "week", id })}
+            >
+              {weekLabel(id)}
+              {exists && <i />}
+            </button>
+          );
         })}
       </div>
       <section className="card">
@@ -785,6 +799,18 @@ function MonthPage({
                 <span className="result-check"><Icon name="check" size={14} /></span>
                 <div><strong>{item.title}</strong><span>{dateLabel(item.date)} · {weekLabel(item.weekId)}</span></div>
                 <strong>{formatValue(item.value, item.metric, item.unit)}</strong>
+                <IconButton
+                  icon="edit"
+                  size="small"
+                  label={`Изменить результат: ${item.title}`}
+                  onClick={() =>
+                    setModal({
+                      kind: "extra",
+                      weekId: item.weekId,
+                      resultId: item.id,
+                    })
+                  }
+                />
               </div>
             ))}
           </div>
@@ -875,7 +901,19 @@ function ExtrasBlock({ data, weekId, setModal }: { data: PlannerData; weekId: st
       {extras.length ? (
         <div className="extras-list">
           {extras.map((item) => (
-            <div key={item.id}><span className="result-check"><Icon name="check" size={14} /></span><div><strong>{item.title}</strong><span>{dateLabel(item.date)}</span></div><strong>{formatValue(item.value, item.metric, item.unit)}</strong></div>
+            <div key={item.id}>
+              <span className="result-check"><Icon name="check" size={14} /></span>
+              <div><strong>{item.title}</strong><span>{dateLabel(item.date)}</span></div>
+              <strong>{formatValue(item.value, item.metric, item.unit)}</strong>
+              <IconButton
+                icon="edit"
+                size="small"
+                label={`Изменить результат: ${item.title}`}
+                onClick={() =>
+                  setModal({ kind: "extra", weekId, resultId: item.id })
+                }
+              />
+            </div>
           ))}
         </div>
       ) : <p className="compact-empty">Нет дополнительных результатов</p>}
@@ -889,12 +927,14 @@ function ModalHost({
   close,
   update,
   setModal,
+  localOnly,
 }: {
   modal: Exclude<ModalState, null>;
   data: PlannerData;
   close: () => void;
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
   setModal: (m: ModalState) => void;
+  localOnly: boolean;
 }) {
   if (modal.kind === "direction") {
     const returnToPlan = modal.returnToPlan;
@@ -910,8 +950,8 @@ function ModalHost({
   if (modal.kind === "activity") return <ActivityForm activity={modal.activity} close={close} update={update} />;
   if (modal.kind === "day") return <DayForm data={data} date={modal.date} close={close} update={update} />;
   if (modal.kind === "work") return <WorkForm data={data} date={modal.date} close={close} update={update} />;
-  if (modal.kind === "fact") return <FactForm data={data} weekId={modal.weekId} directionId={modal.directionId} close={close} update={update} />;
-  if (modal.kind === "extra") return <ExtraForm weekId={modal.weekId} close={close} update={update} />;
+  if (modal.kind === "fact") return <FactForm data={data} weekId={modal.weekId} directionId={modal.directionId} completionId={modal.completionId} close={close} update={update} setModal={setModal} />;
+  if (modal.kind === "extra") return <ExtraForm data={data} weekId={modal.weekId} resultId={modal.resultId} close={close} update={update} setModal={setModal} />;
   if (modal.kind === "month-plan") return <PlanForm data={data} scope="month" id={modal.monthId} close={close} update={update} setModal={setModal} />;
   if (modal.kind === "week-plan") return <PlanForm data={data} scope="week" id={modal.weekId} close={close} update={update} setModal={setModal} />;
   if (modal.kind === "edit-item") return <EditItemForm data={data} {...modal} close={close} update={update} setModal={setModal} />;
@@ -925,7 +965,7 @@ function ModalHost({
     const nestedClose = modal.returnToEdit
       ? () => setModal({ kind: "edit-item", scope: modal.scope, planId: modal.planId, itemId: modal.itemId })
       : close;
-    return <Details data={data} {...modal} close={nestedClose} />;
+    return <Details data={data} {...modal} close={nestedClose} setModal={setModal} />;
   }
   if (modal.kind === "confirm") {
     const cancel = () => modal.returnTo ? setModal(modal.returnTo) : close();
@@ -954,7 +994,11 @@ function ModalHost({
   }
   return (
     <Modal title="Удалить данные?" onClose={close}>
-      <p className="confirm-copy">Все данные будут удалены из облачного хранилища и локальной резервной копии.</p>
+      <p className="confirm-copy">
+        {localOnly
+          ? "Все данные будут удалены из локального хранилища этого браузера."
+          : "Все данные будут удалены из облачного хранилища и локальной резервной копии."}
+      </p>
       <div className="modal-actions">
         <Button variant="secondary" onClick={close}>Отмена</Button>
         <Button variant="danger" onClick={() => {
@@ -1154,7 +1198,12 @@ function DayForm({
   );
   const total = segments.reduce((sum, item) => sum + item.percent, 0);
   const activeTypes = data.activityTypes.filter((item) => !item.archived);
-  if (!activeTypes.length) {
+  const hasDuplicates =
+    new Set(segments.map((item) => item.activityId)).size !== segments.length;
+  const unusedType = activeTypes.find(
+    (item) => !segments.some((segment) => segment.activityId === item.id),
+  );
+  if (!activeTypes.length && !current?.segments.length) {
     return (
       <Modal title={dateLabel(date, { weekday: "long", day: "numeric", month: "long" })} onClose={close}>
         <EmptyState icon="activity" title="Нет типов деятельности" text="Сначала создайте тип деятельности в разделе «График»." action="Закрыть" onAction={close} />
@@ -1165,7 +1214,11 @@ function DayForm({
     <Modal title={dateLabel(date, { weekday: "long", day: "numeric", month: "long" })} onClose={close}>
       <form onSubmit={(event) => {
         event.preventDefault();
-        if (total !== 100 || segments.some((item) => item.percent <= 0)) return;
+        if (
+          total !== 100 ||
+          hasDuplicates ||
+          segments.some((item) => item.percent <= 0)
+        ) return;
         update((state) => {
           const exists = state.days.some((item) => item.date === date);
           return {
@@ -1182,17 +1235,40 @@ function DayForm({
           {segments.map((segment, index) => (
             <div key={index}>
               <select value={segment.activityId} onChange={(e) => setSegments((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, activityId: e.target.value } : item))}>
-                {activeTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                {data.activityTypes
+                  .filter(
+                    (item) =>
+                      !item.archived || item.id === segment.activityId,
+                  )
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}{item.archived ? " — архив" : ""}
+                    </option>
+                  ))}
               </select>
               <div className="percent-input"><input type="number" min="1" max="100" value={segment.percent} onChange={(e) => setSegments((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, percent: Number(e.target.value) } : item))} /><span>%</span></div>
               <IconButton type="button" icon="x" label="Удалить сегмент" disabled={segments.length === 1} onClick={() => setSegments((items) => items.filter((_, itemIndex) => itemIndex !== index))} />
             </div>
           ))}
         </div>
-        <button type="button" className="add-line" onClick={() => setSegments((items) => [...items, { activityId: activeTypes.find((item) => !items.some((segment) => segment.activityId === item.id))?.id ?? activeTypes[0].id, percent: 0 }])}><Icon name="plus" size={15} />Добавить сегмент</button>
+        <button
+          type="button"
+          className="add-line"
+          disabled={!unusedType}
+          onClick={() =>
+            unusedType &&
+            setSegments((items) => [
+              ...items,
+              { activityId: unusedType.id, percent: 0 },
+            ])
+          }
+        >
+          <Icon name="plus" size={15} />Добавить сегмент
+        </button>
         <div className={`sum-line ${total === 100 ? "valid" : "invalid"}`}><span>Сумма</span><strong>{total}%</strong></div>
         {total !== 100 && <p className="form-error">Сумма должна составлять 100%</p>}
-        <div className="modal-actions"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button disabled={total !== 100}>Сохранить</Button></div>
+        {hasDuplicates && <p className="form-error">Каждый тип деятельности можно добавить только один раз</p>}
+        <div className="modal-actions"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button disabled={total !== 100 || hasDuplicates}>Сохранить</Button></div>
       </form>
     </Modal>
   );
@@ -1215,7 +1291,25 @@ function WorkForm({
   const [breaks, setBreaks] = useState(day?.breaks.map((item) => ({ ...item })) ?? []);
   const draft: DayPlan = { date, segments: day?.segments ?? [], workStart: start, workEnd: end, breaks };
   const mins = workMinutes(draft);
-  const valid = mins.total > 0 && breaks.every((item) => toMinutes(item.end) > toMinutes(item.start));
+  const workStart = toMinutes(start);
+  const workEnd = toMinutes(end);
+  const orderedBreaks = [...breaks].sort(
+    (left, right) => toMinutes(left.start) - toMinutes(right.start),
+  );
+  const valid =
+    workEnd > workStart &&
+    orderedBreaks.every((item, index) => {
+      const breakStart = toMinutes(item.start);
+      const breakEnd = toMinutes(item.end);
+      const previous = orderedBreaks[index - 1];
+      return (
+        breakStart >= workStart &&
+        breakEnd <= workEnd &&
+        breakEnd > breakStart &&
+        (!previous || breakStart >= toMinutes(previous.end))
+      );
+    }) &&
+    mins.net > 0;
   return (
     <Modal title="Рабочий период" onClose={close}>
       <form onSubmit={(event) => {
@@ -1259,50 +1353,110 @@ function FactForm({
   data,
   weekId,
   directionId,
+  completionId,
   close,
   update,
+  setModal,
 }: {
   data: PlannerData;
   weekId: string;
   directionId?: string;
+  completionId?: string;
   close: () => void;
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
+  setModal: (modal: ModalState) => void;
 }) {
   const week = data.weeks.find((item) => item.id === weekId);
   const available = week?.items ?? [];
-  const [selectedId, setSelectedId] = useState(directionId ?? available[0]?.directionId ?? "");
+  const existing = data.completions.find((item) => item.id === completionId);
+  const [selectedId, setSelectedId] = useState(
+    existing?.directionId ?? directionId ?? available[0]?.directionId ?? "",
+  );
   const item = available.find((entry) => entry.directionId === selectedId);
-  const [value, setValue] = useState(1);
+  const [value, setValue] = useState(existing?.value ?? 1);
   const [date, setDate] = useState(() => {
+    if (existing) return existing.date;
     const today = iso(new Date());
     return today >= weekId && today <= iso(addDays(parseDate(weekId), 6)) ? today : weekId;
   });
   return (
-    <Modal title="Добавить выполнение" onClose={close}>
-      {!week ? <p className="compact-empty">Сначала запланируйте неделю</p> : (
+    <Modal title={existing ? "Изменить выполнение" : "Добавить выполнение"} onClose={close}>
+      {!week || !available.length ? (
+        <EmptyState
+          icon="today"
+          title="Нет недельного плана"
+          text="Сначала добавьте хотя бы одно направление в план недели."
+          action="Закрыть"
+          onAction={close}
+        />
+      ) : (
         <form className="form-grid" onSubmit={(event) => {
           event.preventDefault();
-          if (!item || value < 0) return;
+          if (!item || value <= 0) return;
           update(
-            (current) => recordCompletion(current, {
-              id: uid("completion"),
-              directionId: selectedId,
-              weekId,
-              date,
-              value: item.metric === "checkbox" ? 1 : value,
-            }),
-            "Выполнение добавлено",
+            (current) => {
+              const completion = {
+                id: existing?.id ?? uid("completion"),
+                directionId: selectedId,
+                weekId,
+                date,
+                value: item.metric === "checkbox" ? 1 : value,
+              };
+              return existing
+                ? {
+                    ...current,
+                    completions: current.completions.map((entry) =>
+                      entry.id === existing.id ? completion : entry,
+                    ),
+                  }
+                : recordCompletion(current, completion);
+            },
+            existing ? "Выполнение обновлено" : "Выполнение добавлено",
           );
           close();
         }}>
-          <label className="field field-full"><span>Направление</span><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{available.map((entry) => <option key={entry.directionId} value={entry.directionId}>{data.directions.find((item) => item.id === entry.directionId)?.name}</option>)}</select></label>
+          <label className="field field-full"><span>Направление</span><select disabled={Boolean(existing)} value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>{available.map((entry) => <option key={entry.directionId} value={entry.directionId}>{data.directions.find((item) => item.id === entry.directionId)?.name}</option>)}</select></label>
           {item?.metric === "checkbox" ? (
             <label className="field checkbox-field"><input type="checkbox" checked readOnly /><span>Выполнено</span></label>
           ) : (
-            <label className="field"><span>Значение{item?.unit && `, ${item.unit}`}</span><input type="number" min="0" step="0.1" value={value} onChange={(e) => setValue(Number(e.target.value))} required /></label>
+            <label className="field">
+              <span>{item?.metric === "percent" ? "Текущий процент" : "Добавить"}{item?.unit && `, ${item.unit}`}</span>
+              <input type="number" min="0.1" step="0.1" value={value} onChange={(e) => setValue(Number(e.target.value))} required />
+            </label>
           )}
           <label className="field"><span>Дата</span><input type="date" min={weekId} max={iso(addDays(parseDate(weekId), 6))} value={date} onChange={(e) => setDate(e.target.value)} required /></label>
-          <div className="modal-actions field-full"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button>Добавить</Button></div>
+          <div className="modal-actions field-full">
+            {existing && (
+              <Button
+                variant="danger"
+                type="button"
+                onClick={() =>
+                  setModal({
+                    kind: "confirm",
+                    title: "Удалить запись выполнения?",
+                    message: "Прогресс планов будет пересчитан.",
+                    confirmLabel: "Удалить",
+                    tone: "danger",
+                    returnTo: { kind: "fact", weekId, completionId: existing.id },
+                    onConfirm: () =>
+                      update(
+                        (current) => ({
+                          ...current,
+                          completions: current.completions.filter(
+                            (entry) => entry.id !== existing.id,
+                          ),
+                        }),
+                        "Выполнение удалено",
+                      ),
+                  })
+                }
+              >
+                Удалить
+              </Button>
+            )}
+            <Button variant="secondary" type="button" onClick={close}>Отмена</Button>
+            <Button>{existing ? "Сохранить" : "Добавить"}</Button>
+          </div>
         </form>
       )}
     </Modal>
@@ -1310,36 +1464,82 @@ function FactForm({
 }
 
 function ExtraForm({
+  data,
   weekId,
+  resultId,
   close,
   update,
+  setModal,
 }: {
+  data: PlannerData;
   weekId: string;
+  resultId?: string;
   close: () => void;
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
+  setModal: (modal: ModalState) => void;
 }) {
-  const [title, setTitle] = useState("");
-  const [metric, setMetric] = useState<MetricType>("checkbox");
-  const [unit, setUnit] = useState("раз");
-  const [value, setValue] = useState(1);
-  const [date, setDate] = useState(weekId);
+  const existing = data.extraResults.find((item) => item.id === resultId);
+  const [title, setTitle] = useState(existing?.title ?? "");
+  const [metric, setMetric] = useState<MetricType>(existing?.metric ?? "checkbox");
+  const [unit, setUnit] = useState(existing?.unit || "раз");
+  const [value, setValue] = useState(existing?.value ?? 1);
+  const [date, setDate] = useState(existing?.date ?? weekId);
   return (
-    <Modal title="Дополнительный результат" onClose={close}>
+    <Modal title={existing ? "Изменить результат" : "Дополнительный результат"} onClose={close}>
       <p className="form-intro">
         Запишите важный результат, который не входил в недельный план.
       </p>
       <form className="form-grid" onSubmit={(event) => {
         event.preventDefault();
-        if (!title.trim()) return;
-        update((current) => ({ ...current, extraResults: [...current.extraResults, { id: uid("result"), weekId, title: title.trim(), metric, unit: metric === "checkbox" ? "" : unit.trim(), value: metric === "checkbox" ? 1 : value, date }] }), "Результат добавлен");
+        if (!title.trim() || (metric !== "checkbox" && value <= 0)) return;
+        update((current) => {
+          const result = { id: existing?.id ?? uid("result"), weekId, title: title.trim(), metric, unit: metric === "checkbox" || metric === "percent" ? "" : unit.trim(), value: metric === "checkbox" ? 1 : value, date };
+          return {
+            ...current,
+            extraResults: existing
+              ? current.extraResults.map((item) => item.id === existing.id ? result : item)
+              : [...current.extraResults, result],
+          };
+        }, existing ? "Результат обновлён" : "Результат добавлен");
         close();
       }}>
         <label className="field field-full"><span>Название результата</span><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} required /></label>
         <label className="field"><span>Метрика</span><select value={metric} onChange={(e) => setMetric(e.target.value as MetricType)}>{Object.entries(metricName).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-        {metric !== "checkbox" && <label className="field"><span>Единица</span><input value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
-        {metric !== "checkbox" && <label className="field"><span>Значение</span><input type="number" min="0" step="0.1" value={value} onChange={(e) => setValue(Number(e.target.value))} /></label>}
+        {metric !== "checkbox" && metric !== "percent" && <label className="field"><span>Единица</span><input value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
+        {metric !== "checkbox" && <label className="field"><span>Значение</span><input type="number" min="0.1" step="0.1" value={value} onChange={(e) => setValue(Number(e.target.value))} /></label>}
         <label className="field"><span>Дата</span><input type="date" min={weekId} max={iso(addDays(parseDate(weekId), 6))} value={date} onChange={(e) => setDate(e.target.value)} required /></label>
-        <div className="modal-actions field-full"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button>Добавить</Button></div>
+        <div className="modal-actions field-full">
+          {existing && (
+            <Button
+              variant="danger"
+              type="button"
+              onClick={() =>
+                setModal({
+                  kind: "confirm",
+                  title: "Удалить дополнительный результат?",
+                  message: "Результат исчезнет из итогов недели и месяца.",
+                  confirmLabel: "Удалить",
+                  tone: "danger",
+                  returnTo: { kind: "extra", weekId, resultId: existing.id },
+                  onConfirm: () =>
+                    update(
+                      (current) => ({
+                        ...current,
+                        extraResults: current.extraResults.filter(
+                          (item) => item.id !== existing.id,
+                        ),
+                      }),
+                      "Результат удалён",
+                    ),
+                })
+              }
+            >
+              Удалить
+            </Button>
+          )}
+          <Button variant="secondary" type="button" onClick={close}>Отмена</Button>
+          <Button>{existing ? "Сохранить" : "Добавить"}</Button>
+        </div>
       </form>
     </Modal>
   );
@@ -1425,6 +1625,7 @@ function PlanForm({
   const [step, setStep] = useState<"directions" | "targets" | "review">(
     existing ? "targets" : "directions",
   );
+  const invalidTargets = rows.some((row) => row.target <= 0);
   const toggleDirection = (directionId: string) => {
     setRows((current) =>
       current.some((item) => item.directionId === directionId)
@@ -1446,7 +1647,7 @@ function PlanForm({
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!rows.length || rows.some((row) => row.target < 0 || !row.directionId)) return;
+    if (!rows.length || rows.some((row) => row.target <= 0 || !row.directionId)) return;
     const oldItems = existing?.items ?? [];
     const items = rows.map((row) => {
       const old = oldItems.find((item) => item.directionId === row.directionId);
@@ -1617,7 +1818,7 @@ function PlanForm({
                         <input
                           aria-label={`План: ${direction?.name}`}
                           type="number"
-                          min="0"
+                          min="0.1"
                           step="0.1"
                           value={row.target}
                           onChange={(event) =>
@@ -1636,6 +1837,11 @@ function PlanForm({
                   );
                 })}
               </div>
+              {invalidTargets && (
+                <p className="form-error">
+                  Плановое значение должно быть больше нуля
+                </p>
+              )}
             </>
           )}
           {step === "review" && (
@@ -1643,7 +1849,9 @@ function PlanForm({
               <div className="plan-wizard-head">
                 <div>
                   <h3>Проверьте план</h3>
-                  <p>{rows.length} направлений. После сохранения значения можно будет изменить.</p>
+                  <p>
+                    {rows.length} {pluralize(rows.length, ["направление", "направления", "направлений"])}. После сохранения значения можно будет изменить.
+                  </p>
                 </div>
               </div>
               {rows.map((row) => {
@@ -1682,11 +1890,11 @@ function PlanForm({
               <Button variant="secondary" type="button" onClick={() => setStep(step === "review" ? "targets" : "directions")}>Назад</Button>
             )}
             {step === "review" ? (
-              <Button disabled={!rows.length}>Сохранить план</Button>
+              <Button disabled={!rows.length || invalidTargets}>Сохранить план</Button>
             ) : (
               <Button
                 type="button"
-                disabled={!rows.length}
+                disabled={!rows.length || invalidTargets}
                 trailingIcon="arrow-right"
                 onClick={() => setStep(step === "directions" ? "targets" : "review")}
               >
@@ -1761,6 +1969,7 @@ function EditItemForm({
     <Modal title={direction.name} onClose={close}>
       <form onSubmit={(event) => {
         event.preventDefault();
+        if (savedTarget <= 0) return;
         update((current) => {
           const currentPlan = findPlan(current, scope, planId)!;
           return replaceItem(current, currentPlan.items.map((entry) => entry.id === itemId ? {
@@ -1778,7 +1987,7 @@ function EditItemForm({
         {planMetric.metric === "checkbox" ? (
           <div className="calculation-box"><span>План <strong>Отметка</strong></span></div>
         ) : (
-          <label className="field"><span>План, {planMetric.metric === "percent" ? "%" : planMetric.unit || metricName[planMetric.metric].toLowerCase()}</span><input type="number" min="0" step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
+          <label className="field"><span>План, {planMetric.metric === "percent" ? "%" : planMetric.unit || metricName[planMetric.metric].toLowerCase()}</span><input type="number" min="0.1" step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
         )}
         {periodStatus(planId, scope) !== (scope === "month" ? "Будущий" : "Будущая") && (
           <p className="plan-change-note">
@@ -1791,7 +2000,26 @@ function EditItemForm({
           {item.paused && <button type="button" onClick={() => {
             update((current) => {
               const currentPlan = findPlan(current, scope, planId)!;
-              return replaceItem(current, currentPlan.items.map((entry) => entry.id === itemId ? { ...entry, paused: undefined } : entry));
+              return replaceItem(current, currentPlan.items.map((entry) => {
+                if (entry.id !== itemId) return entry;
+                const restoredTarget = entry.originalTarget;
+                return {
+                  ...entry,
+                  target: restoredTarget,
+                  paused: undefined,
+                  history: entry.target !== restoredTarget
+                    ? [
+                        ...entry.history,
+                        {
+                          date: iso(new Date()),
+                          from: entry.target,
+                          to: restoredTarget,
+                          reason: "Возобновление",
+                        },
+                      ]
+                    : entry.history,
+                };
+              }));
             }, "Направление возобновлено");
             close();
           }}>Возобновить<Icon name="arrow-right" size={15} /></button>}
@@ -1855,8 +2083,18 @@ function PauseForm({
             history: entry.target !== target ? [...entry.history, { date: iso(new Date()), from: entry.target, to: target, reason }] : entry.history,
           } : entry);
           return scope === "month"
-            ? { ...current, months: current.months.map((entry) => entry.id === planId ? { ...entry, items: nextItems } : entry) }
-            : { ...current, weeks: current.weeks.map((entry) => entry.id === planId ? { ...entry, items: nextItems } : entry), months: current.months.map((month) => month.id === (currentPlan as WeekPlan).monthId ? { ...month, items: month.items.map((monthItem) => monthItem.directionId === item.directionId && target < item.target ? { ...monthItem, target: Math.max(0, monthItem.target - (item.target - target)), history: [...monthItem.history, { date: iso(new Date()), from: monthItem.target, to: Math.max(0, monthItem.target - (item.target - target)), reason }] } : monthItem) } : month) };
+            ? {
+                ...current,
+                months: current.months.map((entry) =>
+                  entry.id === planId ? { ...entry, items: nextItems } : entry,
+                ),
+              }
+            : {
+                ...current,
+                weeks: current.weeks.map((entry) =>
+                  entry.id === planId ? { ...entry, items: nextItems } : entry,
+                ),
+              };
         }, "Приостановка сохранена");
         close();
       }}>
@@ -1882,12 +2120,14 @@ function Details({
   planId,
   itemId,
   close,
+  setModal,
 }: {
   data: PlannerData;
   scope: "month" | "week";
   planId: string;
   itemId: string;
   close: () => void;
+  setModal: (modal: ModalState) => void;
 }) {
   const plan = findPlan(data, scope, planId);
   const item = plan?.items.find((entry) => entry.id === itemId);
@@ -1906,7 +2146,28 @@ function Details({
       </div>
       {item.paused && <div className="pause-note"><Badge tone="amber">{item.paused.reason}</Badge><span>{dateLabel(item.paused.date)}</span>{item.paused.details && <p>{item.paused.details}</p>}</div>}
       <h3 className="form-section-title">Записи выполнения</h3>
-      {entries.length ? <div className="history-list">{entries.map((entry) => <div key={entry.id}><span>{dateLabel(entry.date)}</span><strong>{formatValue(entry.value, item.metric, item.unit)}</strong></div>)}</div> : <p className="compact-empty">Нет записей выполнения</p>}
+      {entries.length ? (
+        <div className="history-list">
+          {entries.map((entry) => (
+            <div key={entry.id}>
+              <span>{dateLabel(entry.date)}</span>
+              <strong>{formatValue(entry.value, item.metric, item.unit)}</strong>
+              <IconButton
+                icon="edit"
+                size="small"
+                label={`Изменить выполнение за ${dateLabel(entry.date)}`}
+                onClick={() =>
+                  setModal({
+                    kind: "fact",
+                    weekId: entry.weekId,
+                    completionId: entry.id,
+                  })
+                }
+              />
+            </div>
+          ))}
+        </div>
+      ) : <p className="compact-empty">Нет записей выполнения</p>}
       {item.history.length > 0 && <><h3 className="form-section-title">История изменений</h3><div className="history-list">{item.history.map((entry, index) => <div key={`${entry.date}-${index}`}><span>{dateLabel(entry.date)} · {entry.reason}</span><strong>{formatValue(entry.from, item.metric, item.unit)} → {formatValue(entry.to, item.metric, item.unit)}</strong></div>)}</div></>}
     </Modal>
   );

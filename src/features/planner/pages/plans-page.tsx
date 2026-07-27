@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { PlannerData } from "@/src/domain/planner/model/types";
 import { iso, monthIdForWeek } from "@/src/domain/planner/lib/dates";
 import { itemFact, progress } from "@/src/domain/planner/lib/progress";
-import { dateLabel } from "@/app/lib/data";
+import { dateLabel, pluralize } from "@/app/lib/data";
 import { navigate } from "@/src/application/navigation/routes";
 import { Badge } from "@/src/shared/ui/badge/badge";
 import { PageHeader } from "@/src/shared/ui/page-header/page-header";
@@ -69,7 +69,13 @@ export function PlansPage({ data }: { data: PlannerData }) {
               {month ? (
                 <>
                   <strong className="month-count">{month.items.length}</strong>
-                  <span>направлений</span>
+                  <span>
+                    {pluralize(month.items.length, [
+                      "направление",
+                      "направления",
+                      "направлений",
+                    ])}
+                  </span>
                   <div className="month-card-metric">
                     <span>Общий прогресс</span>
                     <strong>{completion}%</strong>
@@ -77,7 +83,9 @@ export function PlansPage({ data }: { data: PlannerData }) {
                   </div>
                   <PlanSummary data={data} month={month} />
                   {extras > 0 && (
-                    <span className="month-extra">+{extras} результата</span>
+                    <span className="month-extra">
+                      +{extras} {pluralize(extras, ["результат", "результата", "результатов"])}
+                    </span>
                   )}
                 </>
               ) : (

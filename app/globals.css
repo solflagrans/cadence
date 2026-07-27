@@ -361,7 +361,7 @@
 
 .extras-card { margin-top: 20px; }
 .extras-list { border-top: 1px solid var(--line); }
-.extras-list > div { min-height: 58px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+.extras-list > div { min-height: 58px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
 .extras-list > div:last-child { border-bottom: 0; }
 .extras-list > div > div { display: flex; flex-direction: column; }
 .extras-list > div > div span { color: var(--muted); font-size: 11px; }

@@ -15,31 +15,6 @@ type UpdatePlanner = (
   message?: string,
 ) => void;
 
-function ToggleRow({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <div className="setting-row">
-      <div><strong>{label}</strong></div>
-      <button
-        type="button"
-        className={`switch ${value ? "on" : ""}`}
-        onClick={() => onChange(!value)}
-        aria-pressed={value}
-        aria-label={`${label}: ${value ? "включено" : "выключено"}`}
-      >
-        <span />
-      </button>
-    </div>
-  );
-}
-
 function SettingsTitle({
   icon,
   children,
@@ -81,7 +56,7 @@ export function SettingsPage({
       <PageHeader
         title="Настройки"
         eyebrow="Персонализация"
-        description="Аккаунт, планирование, внешний вид и управление данными."
+        description="Аккаунт, внешний вид и управление данными."
       />
       <div className="settings-layout">
         <section className="card settings-section settings-account">
@@ -100,68 +75,6 @@ export function SettingsPage({
               <Button icon="login" variant="secondary" onClick={openAuth}>Войти</Button>
             )}
           </div>
-        </section>
-        <section className="card settings-section">
-          <SettingsTitle icon="calendar">Региональные настройки</SettingsTitle>
-          <label className="setting-row">
-            <div><strong>Часовой пояс</strong></div>
-            <select
-              value={data.settings.timezone}
-              onChange={(event) =>
-                patchSettings({ timezone: event.target.value })
-              }
-            >
-              <option>Europe/Moscow</option>
-              <option>Europe/Berlin</option>
-              <option>Asia/Tbilisi</option>
-            </select>
-          </label>
-          <div className="setting-row">
-            <div><strong>Первый день недели</strong></div>
-            <span className="setting-static">Понедельник</span>
-          </div>
-          <label className="setting-row">
-            <div><strong>Формат времени</strong></div>
-            <select
-              value={data.settings.timeFormat}
-              onChange={(event) =>
-                patchSettings({
-                  timeFormat: event.target.value as "24" | "12",
-                })
-              }
-            >
-              <option value="24">24 часа</option>
-              <option value="12">12 часов</option>
-            </select>
-          </label>
-        </section>
-        <section className="card settings-section">
-          <SettingsTitle icon="plans">Планирование</SettingsTitle>
-          <label className="setting-row">
-            <div><strong>Диапазон графика</strong></div>
-            <select
-              value={data.settings.scheduleRange}
-              onChange={(event) =>
-                patchSettings({
-                  scheduleRange: Number(event.target.value) as 14 | 21 | 30,
-                })
-              }
-            >
-              <option value="14">14 дней</option>
-              <option value="21">21 день</option>
-              <option value="30">30 дней</option>
-            </select>
-          </label>
-          <ToggleRow
-            label="Планирование недели"
-            value={data.settings.weekReminder}
-            onChange={(value) => patchSettings({ weekReminder: value })}
-          />
-          <ToggleRow
-            label="Планирование месяца"
-            value={data.settings.monthReminder}
-            onChange={(value) => patchSettings({ monthReminder: value })}
-          />
         </section>
         <section className="card settings-section">
           <SettingsTitle icon="spark">Внешний вид</SettingsTitle>

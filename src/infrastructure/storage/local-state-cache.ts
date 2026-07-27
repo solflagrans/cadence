@@ -36,10 +36,14 @@ export class LocalStateCache {
   }
 
   save(scope: StorageScope, data: PlannerData): void {
-    window.localStorage.setItem(storageKeyFor(scope), JSON.stringify(data));
-    if (scope.kind === "guest") {
-      window.localStorage.removeItem(STORAGE_KEY);
-      LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+    try {
+      window.localStorage.setItem(storageKeyFor(scope), JSON.stringify(data));
+      if (scope.kind === "guest") {
+        window.localStorage.removeItem(STORAGE_KEY);
+        LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+      }
+    } catch (error) {
+      throw new Error("Unable to write local backup", { cause: error });
     }
   }
 
@@ -51,7 +55,11 @@ export class LocalStateCache {
 
   saveRevision(scope: StorageScope, revision: number): void {
     if (scope.kind === "account") {
-      window.localStorage.setItem(this.revisionKey(scope), String(revision));
+      try {
+        window.localStorage.setItem(this.revisionKey(scope), String(revision));
+      } catch {
+        // The state itself is still safely stored remotely.
+      }
     }
   }
 }

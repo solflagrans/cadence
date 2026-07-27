@@ -36,6 +36,7 @@ export type AccountMigration = {
 
 export type SaveIssue =
   | { kind: "network" }
+  | { kind: "local" }
   | { kind: "conflict"; remoteRevision: number }
   | null;
 
@@ -153,10 +154,17 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     const revision = ++saveRevision.current;
     const snapshot = data;
     const scope = activeStorageScope.current;
-    storageRepository.cache(scope, snapshot);
-    setSaveStatus("saving");
-
+    try {
+      storageRepository.cache(scope, snapshot);
+    } catch {
+      const errorTimer = window.setTimeout(() => {
+        setSaveStatus("error");
+        setSaveIssue({ kind: "local" });
+      }, 0);
+      return () => window.clearTimeout(errorTimer);
+    }
     const timer = window.setTimeout(() => {
+      setSaveStatus("saving");
       const operation = saveQueue.current
         .catch(() => undefined)
         .then(() => storageRepository.save(scope, snapshot));
@@ -220,6 +228,13 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
 
   const retrySave = async () => {
     setSaveStatus("saving");
+    try {
+      storageRepository.cache(activeStorageScope.current, data);
+    } catch {
+      setSaveStatus("error");
+      setSaveIssue({ kind: "local" });
+      return;
+    }
     try {
       await storageRepository.save(activeStorageScope.current, data);
       setSaveStatus("saved");

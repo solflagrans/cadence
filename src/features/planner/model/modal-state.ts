@@ -12,8 +12,13 @@ export type ModalState =
   | { kind: "activity"; activity?: ActivityType }
   | { kind: "day"; date: string }
   | { kind: "work"; date: string }
-  | { kind: "fact"; weekId: string; directionId?: string }
-  | { kind: "extra"; weekId: string }
+  | {
+      kind: "fact";
+      weekId: string;
+      directionId?: string;
+      completionId?: string;
+    }
+  | { kind: "extra"; weekId: string; resultId?: string }
   | { kind: "month-plan"; monthId: string }
   | { kind: "week-plan"; weekId: string }
   | {

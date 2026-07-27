@@ -5,7 +5,10 @@ import {
   moveDirectionToTrash,
   restoreDirection,
 } from "@/src/domain/planner/commands/directions";
-import { progress } from "@/src/domain/planner/lib/progress";
+import {
+  progress,
+  quickCompletionValue,
+} from "@/src/domain/planner/lib/progress";
 import {
   hasPlannerContent,
   mergePlannerData,
@@ -72,6 +75,21 @@ describe("planner domain", () => {
     expect(progress(15, 10, "count")).toBe(100);
     expect(progress(1, 1, "checkbox")).toBe(100);
     expect(progress(0, 1, "checkbox")).toBe(0);
+  });
+
+  it("increments percent snapshots without resetting existing progress", () => {
+    expect(quickCompletionValue(40, 100, "percent", 10)).toEqual({
+      delta: 10,
+      value: 50,
+    });
+    expect(quickCompletionValue(95, 100, "percent", 10)).toEqual({
+      delta: 5,
+      value: 100,
+    });
+    expect(quickCompletionValue(4, 10, "count", 1)).toEqual({
+      delta: 1,
+      value: 1,
+    });
   });
 
   it("moves a direction to trash without losing history and restores it", () => {

@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import type { PlannerUpdate } from "@/src/application/planner/planner-provider";
 import { itemFact, progress } from "@/src/domain/planner/lib/progress";
 import type {
@@ -34,7 +33,6 @@ export function PeriodReview({
   const existing = data.reviews.find(
     (item) => item.scope === scope && item.periodId === periodId,
   );
-  const [note, setNote] = useState(existing?.note ?? "");
   const results = items.map((item) => {
     const fact = itemFact(data, item, weekId);
     return { item, fact, pct: progress(fact, item.target, item.metric) };
@@ -56,7 +54,7 @@ export function PeriodReview({
   ).length;
   const isPast = status.startsWith("Прош");
 
-  const saveNote = () => {
+  const saveNote = (note: string) => {
     if (note === (existing?.note ?? "")) return;
     update(
       (current) => {
@@ -76,7 +74,6 @@ export function PeriodReview({
             : [...current.reviews, review],
         };
       },
-      "Заметка сохранена",
     );
   };
 
@@ -104,9 +101,8 @@ export function PeriodReview({
           {isPast ? "Что стоит учесть дальше?" : "Заметка о периоде"}
         </span>
         <textarea
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          onBlur={saveNote}
+          value={existing?.note ?? ""}
+          onChange={(event) => saveNote(event.target.value)}
           placeholder="Что сработало, что мешало, что изменить в следующем плане…"
           rows={3}
         />

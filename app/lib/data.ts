@@ -19,6 +19,18 @@ import {
 export const uid = (prefix = "id") =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
+export const pluralize = (
+  value: number,
+  forms: [string, string, string],
+) => {
+  const absolute = Math.abs(value) % 100;
+  const last = absolute % 10;
+  if (absolute > 10 && absolute < 20) return forms[2];
+  if (last === 1) return forms[0];
+  if (last >= 2 && last <= 4) return forms[1];
+  return forms[2];
+};
+
 export const monthName = (id: string) =>
   new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" }).format(
     parseDate(`${id}-01`),

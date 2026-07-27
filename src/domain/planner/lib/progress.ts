@@ -34,3 +34,17 @@ export const progress = (
   if (metric === "checkbox") return fact >= 1 ? 100 : 0;
   return target > 0 ? Math.min(100, Math.round((fact / target) * 100)) : 0;
 };
+
+export const quickCompletionValue = (
+  fact: number,
+  target: number,
+  metric: MetricType,
+  increment: number,
+) => {
+  const remaining = Math.max(0, target - fact);
+  const delta = Math.min(remaining || increment, increment);
+  return {
+    delta,
+    value: metric === "percent" ? Math.min(target, fact + delta) : delta,
+  };
+};

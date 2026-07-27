@@ -1,7 +1,11 @@
 import type { PlannerUpdate } from "@/src/application/planner/planner-provider";
 import { recordCompletion } from "@/src/domain/planner/commands/plans";
 import { iso } from "@/src/domain/planner/lib/dates";
-import { itemFact, progress } from "@/src/domain/planner/lib/progress";
+import {
+  itemFact,
+  progress,
+  quickCompletionValue,
+} from "@/src/domain/planner/lib/progress";
 import type { PlannerData } from "@/src/domain/planner/model/types";
 import { formatValue, uid } from "@/app/lib/data";
 import { Button } from "@/src/shared/ui/button/button";
@@ -51,7 +55,6 @@ export function TodayPlan({
         if (!direction || direction.deletedAt) return null;
         const fact = itemFact(data, item, weekId);
         const percent = progress(fact, item.target, item.metric);
-        const remaining = Math.max(0, item.target - fact);
         const quickValue =
           item.metric === "duration"
             ? item.unit === "мин."
@@ -60,7 +63,12 @@ export function TodayPlan({
             : item.metric === "percent"
               ? 10
               : 1;
-        const value = Math.min(remaining || quickValue, quickValue);
+        const { delta, value } = quickCompletionValue(
+          fact,
+          item.target,
+          item.metric,
+          quickValue,
+        );
         const completed = percent >= 100;
 
         return (
@@ -94,7 +102,9 @@ export function TodayPlan({
                   ? "Выполнено"
                   : item.metric === "checkbox"
                     ? "Отметить"
-                    : formatValue(value, item.metric, item.unit)}
+                    : item.metric === "percent"
+                      ? `+${formatValue(delta, item.metric, item.unit)}`
+                      : formatValue(value, item.metric, item.unit)}
               </Button>
               {item.metric !== "checkbox" && (
                 <button

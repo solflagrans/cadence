@@ -279,14 +279,18 @@ export function DirectionDetailsPage({
                   ? "red"
                   : direction.availability === "active"
                     ? "green"
-                    : "amber"
+                    : direction.availability === "paused"
+                      ? "amber"
+                      : "neutral"
               }
             >
               {direction.deletedAt
                 ? "Корзина"
                 : direction.availability === "active"
                 ? "Активно"
-                : "Приостановлено"}
+                : direction.availability === "paused"
+                  ? "Приостановлено"
+                  : "Архив"}
             </Badge>
             <span>
               {metricName[direction.metric]}

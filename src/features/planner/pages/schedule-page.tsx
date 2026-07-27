@@ -107,12 +107,12 @@ export function SchedulePage({
         title="График"
         eyebrow="Распределение времени"
         description="Настройте состав дней и поддерживайте устойчивый ритм деятельности."
-        actions={
+        actions={mode === "calendar" ? (
           <Button
             icon="plus"
             onClick={() =>
               setModal(
-                !data.activityTypes.length || mode === "types"
+                !data.activityTypes.length
                   ? { kind: "activity" }
                   : {
                       kind: "day",
@@ -121,11 +121,11 @@ export function SchedulePage({
               )
             }
           >
-            {!data.activityTypes.length || mode === "types"
+            {!data.activityTypes.length
               ? "Новый тип"
               : "Изменить день"}
           </Button>
-        }
+        ) : undefined}
       />
       <div className="tab-bar">
         <button
@@ -231,6 +231,7 @@ export function SchedulePage({
                 <button
                   key={day.date}
                   className={`calendar-day card ${isSelected ? "selected" : ""} ${day.date === iso(new Date()) ? "today" : ""}`}
+                  onPointerUp={(event) => event.currentTarget.blur()}
                   onClick={() => {
                     if (!selectionMode) {
                       setSelected([day.date]);
@@ -279,36 +280,51 @@ export function SchedulePage({
           </section>
         </>
       ) : (
-        <section className="card type-list">
-          {[...data.activityTypes]
-            .sort((a, b) => a.order - b.order)
-            .map((activity) => (
-              <div key={activity.id}>
-                <span
-                  className="type-swatch"
-                  style={{ background: activity.color }}
-                />
-                <div>
-                  <strong>{activity.name}</strong>
-                  <span>{activity.archived ? "Архивный" : "Активный"}</span>
+        <section className="card activity-types-panel">
+          <div className="activity-types-head">
+            <div>
+              <h2>Типы деятельности</h2>
+              <p>Категории, из которых складывается состав дня в графике.</p>
+            </div>
+            <Button
+              icon="plus"
+              size="small"
+              onClick={() => setModal({ kind: "activity" })}
+            >
+              Создать тип
+            </Button>
+          </div>
+          <div className="type-list">
+            {[...data.activityTypes]
+              .sort((a, b) => a.order - b.order)
+              .map((activity) => (
+                <div className="activity-type-row" key={activity.id}>
+                  <span
+                    className="type-swatch"
+                    style={{ background: activity.color }}
+                  />
+                  <div>
+                    <strong>{activity.name}</strong>
+                    <span>{activity.archived ? "В архиве" : "Активный тип"}</span>
+                  </div>
+                  <button
+                    className="text-link"
+                    onClick={() => setModal({ kind: "activity", activity })}
+                  >
+                    <Icon name="edit" size={15} /> Изменить
+                  </button>
                 </div>
-                <button
-                  className="text-link"
-                  onClick={() => setModal({ kind: "activity", activity })}
-                >
-                  <Icon name="edit" size={15} /> Изменить
-                </button>
-              </div>
-            ))}
-          {!data.activityTypes.length && (
-            <EmptyState
-              icon="activity"
-              title="Создайте типы деятельности"
-              text="Нет типов деятельности"
-              action="Создать тип"
-              onAction={() => setModal({ kind: "activity" })}
-            />
-          )}
+              ))}
+            {!data.activityTypes.length && (
+              <EmptyState
+                icon="activity"
+                title="Пока нет типов деятельности"
+                text="Создайте первую категорию, чтобы распределять время между занятиями."
+                action="Создать тип"
+                onAction={() => setModal({ kind: "activity" })}
+              />
+            )}
+          </div>
         </section>
       )}
     </>
