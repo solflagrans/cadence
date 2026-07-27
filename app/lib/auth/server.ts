@@ -35,6 +35,3 @@ export async function getCurrentAccount(): Promise<AccountIdentity | null> {
     image: data.user.image,
   };
 }
-
-export const storageUserId = (account: AccountIdentity): string =>
-  `${account.provider}:${account.subject}`;

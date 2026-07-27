@@ -22,6 +22,10 @@ Vercel automatically runs `npm run build`. The build applies the idempotent
 database migration before compiling Next.js, so a deployment without Neon
 configuration fails early instead of publishing a broken API.
 
+Cadence keeps an internal application user separate from the authentication
+provider. Account state is stored as `JSONB` with a schema version and revision;
+stale devices receive a conflict instead of overwriting newer cloud data.
+
 No custom build command or output directory is required.
 
 ## Local development

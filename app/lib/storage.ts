@@ -31,6 +31,10 @@ export interface StorageRepository {
 }
 
 class LocalBackup {
+  private revisionKey(scope: StorageScope): string {
+    return `${storageKeyFor(scope)}:revision`;
+  }
+
   load(scope: StorageScope): PlannerData | null {
     if (typeof window === "undefined") return null;
     try {
@@ -59,14 +63,53 @@ class LocalBackup {
       LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
     }
   }
+
+  loadRevision(scope: StorageScope): number {
+    if (typeof window === "undefined" || scope.kind === "guest") return 0;
+    const value = Number(window.localStorage.getItem(this.revisionKey(scope)));
+    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  }
+
+  saveRevision(scope: StorageScope, revision: number): void {
+    if (scope.kind === "account") {
+      window.localStorage.setItem(this.revisionKey(scope), String(revision));
+    }
+  }
 }
 
-type ApiStateResponse = { data: unknown; updatedAt: string };
+type ApiStateResponse = {
+  data: unknown;
+  revision: number;
+  updatedAt: string;
+};
 
 const isApiStateResponse = (value: unknown): value is ApiStateResponse => {
   if (!value || typeof value !== "object") return false;
-  const candidate = value as { data?: unknown; updatedAt?: unknown };
-  return candidate.data !== undefined && typeof candidate.updatedAt === "string";
+  const candidate = value as {
+    data?: unknown;
+    revision?: unknown;
+    updatedAt?: unknown;
+  };
+  return (
+    candidate.data !== undefined &&
+    typeof candidate.updatedAt === "string" &&
+    typeof candidate.revision === "number" &&
+    Number.isSafeInteger(candidate.revision) &&
+    candidate.revision >= 1
+  );
+};
+
+const isApiSaveResponse = (
+  value: unknown,
+): value is { revision: number; updatedAt: string } => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { revision?: unknown; updatedAt?: unknown };
+  return (
+    typeof candidate.revision === "number" &&
+    Number.isSafeInteger(candidate.revision) &&
+    candidate.revision >= 1 &&
+    typeof candidate.updatedAt === "string"
+  );
 };
 
 class ApiStorageRepository implements StorageRepository {
@@ -94,6 +137,7 @@ class ApiStorageRepository implements StorageRepository {
       });
 
       if (response.status === 404) {
+        this.backup.saveRevision(scope, 0);
         return { data: cached, source: "local", remoteAvailable: true };
       }
       if (!response.ok) {
@@ -110,6 +154,7 @@ class ApiStorageRepository implements StorageRepository {
       }
 
       this.backup.save(scope, normalized);
+      this.backup.saveRevision(scope, payload.revision);
       return { data: normalized, source: "remote", remoteAvailable: true };
     } catch {
       return { data: cached, source: "local", remoteAvailable: false };
@@ -126,12 +171,21 @@ class ApiStorageRepository implements StorageRepository {
     const response = await fetch(this.apiPath, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data }),
+      body: JSON.stringify({
+        data,
+        revision: this.backup.loadRevision(scope),
+      }),
     });
 
     if (!response.ok) {
       throw new Error(`State save failed with status ${response.status}`);
     }
+
+    const payload: unknown = await response.json();
+    if (!isApiSaveResponse(payload)) {
+      throw new Error("State save response has an invalid format");
+    }
+    this.backup.saveRevision(scope, payload.revision);
   }
 }
 
