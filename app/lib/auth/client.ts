@@ -8,6 +8,30 @@ const neonAuthClient = createAuthClient();
 const messageFromError = (error: { message?: string } | null): string | null =>
   error?.message ?? null;
 
+const record = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+
+const thrownAuthMessage = (error: unknown): string => {
+  const candidate = record(error);
+  const status = candidate?.status;
+  const nested = record(candidate?.error) ?? record(candidate?.body);
+  const message =
+    (typeof nested?.message === "string" && nested.message) ||
+    (error instanceof Error && error.message) ||
+    (typeof candidate?.message === "string" && candidate.message);
+
+  if (
+    status === 403 ||
+    (typeof message === "string" &&
+      message.toLowerCase().includes("forbidden"))
+  ) {
+    return "Домен приложения не разрешён в настройках Neon Auth";
+  }
+  return message || "Не удалось связаться с сервисом авторизации";
+};
+
 export function useAccountSession(): AccountSession & {
   refresh: () => Promise<void>;
 } {
@@ -38,8 +62,12 @@ export async function signInWithEmail(
   email: string,
   password: string,
 ): Promise<string | null> {
-  const result = await neonAuthClient.signIn.email({ email, password });
-  return messageFromError(result.error);
+  try {
+    const result = await neonAuthClient.signIn.email({ email, password });
+    return messageFromError(result.error);
+  } catch (error) {
+    return thrownAuthMessage(error);
+  }
 }
 
 export async function signUpWithEmail(
@@ -47,11 +75,19 @@ export async function signUpWithEmail(
   email: string,
   password: string,
 ): Promise<string | null> {
-  const result = await neonAuthClient.signUp.email({ name, email, password });
-  return messageFromError(result.error);
+  try {
+    const result = await neonAuthClient.signUp.email({ name, email, password });
+    return messageFromError(result.error);
+  } catch (error) {
+    return thrownAuthMessage(error);
+  }
 }
 
 export async function signOutAccount(): Promise<string | null> {
-  const result = await neonAuthClient.signOut();
-  return messageFromError(result.error);
+  try {
+    const result = await neonAuthClient.signOut();
+    return messageFromError(result.error);
+  } catch (error) {
+    return thrownAuthMessage(error);
+  }
 }
