@@ -1,21 +1,14 @@
-# Cloudflare Pages setup
+# Cloudflare Workers setup
 
-Cadence builds as a static SPA while `/api/state` runs as a Cloudflare Pages Function backed by D1.
+Cadence is deployed as one Worker: the static SPA is served from `dist`, while `/api/*` is handled by `worker/index.ts` and backed by D1.
 
-## One-time setup
+## One-time database setup
 
-1. Create the D1 database:
+The `DB` binding in `wrangler.jsonc` points to the `cadence` D1 database. Apply the schema before using the deployed API:
 
-   ```sh
-   npx wrangler d1 create cadence
-   ```
-
-2. Replace the placeholder `database_id` in `wrangler.jsonc` with the returned ID.
-3. Apply the migration:
-
-   ```sh
-   npm run db:migrate:remote
-   ```
+```sh
+npm run db:migrate:remote
+```
 
 ## Local full-stack preview
 
@@ -25,14 +18,13 @@ npm run db:migrate:local
 npm run preview
 ```
 
-The preview is served by Wrangler with a local D1 database. The regular `npm run dev` command still runs the frontend-only Next.js development server, so remote saves are expected to fail there while the local backup remains available.
+Wrangler serves the static build, runs the API Worker, and uses a local D1 database. The regular `npm run dev` command remains a frontend-only Next.js development server, so cloud saves are expected to fail there while the local backup remains available.
 
-## Cloudflare Pages
+## Workers Builds
 
-Connect the repository to Pages and use:
+Connect the repository to the existing `cadence` Worker and use:
 
 - Build command: `npm run build`
-- Build output directory: `dist`
-- Deploy command (when the build platform requests one): `npm run deploy`
+- Deploy command: `npm run deploy`
 
-The `wrangler.jsonc` file is the source of truth for the Pages configuration and the `DB` binding.
+The `wrangler.jsonc` file is the source of truth for the Worker, Static Assets, observability, and the `DB` binding.

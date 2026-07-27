@@ -1,5 +1,6 @@
 const FIXED_USER_ID = "guest";
 const MAX_STATE_BYTES = 1_000_000;
+const STATE_PATH = "/api/state";
 
 const json = (body: unknown, init: ResponseInit = {}): Response => {
   const headers = new Headers(init.headers);
@@ -37,11 +38,23 @@ const getStateFromBody = (body: unknown): unknown => {
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-export const onRequestGet: PagesFunction<Env> = async (context) => {
-  const userId = resolveUserId();
+const logError = (
+  event: "state_load_failed" | "state_save_failed",
+  request: Request,
+  userId: string,
+  error: unknown,
+): void => {
+  console.error(JSON.stringify({
+    event,
+    userId,
+    ray: request.headers.get("cf-ray"),
+    error: errorMessage(error),
+  }));
+};
 
+async function loadState(request: Request, env: Env, userId: string): Promise<Response> {
   try {
-    const row = await context.env.DB.prepare(
+    const row = await env.DB.prepare(
       "SELECT data, updated_at FROM user_state WHERE user_id = ?1",
     )
       .bind(userId)
@@ -56,37 +69,37 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       updatedAt: row.updated_at,
     });
   } catch (error) {
-    console.error(JSON.stringify({
-      event: "state_load_failed",
-      userId,
-      error: errorMessage(error),
-    }));
+    logError("state_load_failed", request, userId, error);
     return json({ error: "Unable to load state" }, { status: 500 });
   }
-};
+}
 
-export const onRequestPut: PagesFunction<Env> = async (context) => {
-  const userId = resolveUserId();
-  const contentLength = Number(context.request.headers.get("content-length") ?? "0");
-
+async function saveState(request: Request, env: Env, userId: string): Promise<Response> {
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (contentLength > MAX_STATE_BYTES) {
     return json({ error: "State is too large" }, { status: 413 });
   }
 
+  let body: unknown;
   try {
-    const body: unknown = await context.request.json();
-    const state = getStateFromBody(body);
-    if (!isSupportedState(state)) {
-      return json({ error: "Invalid state" }, { status: 400 });
-    }
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, { status: 400 });
+  }
 
-    const serialized = JSON.stringify(state);
-    if (new TextEncoder().encode(serialized).byteLength > MAX_STATE_BYTES) {
-      return json({ error: "State is too large" }, { status: 413 });
-    }
+  const state = getStateFromBody(body);
+  if (!isSupportedState(state)) {
+    return json({ error: "Invalid state" }, { status: 400 });
+  }
 
+  const serialized = JSON.stringify(state);
+  if (new TextEncoder().encode(serialized).byteLength > MAX_STATE_BYTES) {
+    return json({ error: "State is too large" }, { status: 413 });
+  }
+
+  try {
     const updatedAt = new Date().toISOString();
-    await context.env.DB.prepare(
+    await env.DB.prepare(
       `INSERT INTO user_state (user_id, data, updated_at)
        VALUES (?1, ?2, ?3)
        ON CONFLICT(user_id) DO UPDATE SET
@@ -98,11 +111,36 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
 
     return json({ updatedAt });
   } catch (error) {
-    console.error(JSON.stringify({
-      event: "state_save_failed",
-      userId,
-      error: errorMessage(error),
-    }));
+    logError("state_save_failed", request, userId, error);
     return json({ error: "Unable to save state" }, { status: 500 });
   }
-};
+}
+
+async function handleStateRequest(request: Request, env: Env): Promise<Response> {
+  const userId = resolveUserId();
+
+  if (request.method === "GET") {
+    return loadState(request, env, userId);
+  }
+  if (request.method === "PUT") {
+    return saveState(request, env, userId);
+  }
+
+  return json(
+    { error: "Method not allowed" },
+    { status: 405, headers: { Allow: "GET, PUT" } },
+  );
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const { pathname } = new URL(request.url);
+    if (pathname === STATE_PATH) {
+      return handleStateRequest(request, env);
+    }
+    if (pathname.startsWith("/api/")) {
+      return json({ error: "Not found" }, { status: 404 });
+    }
+    return env.ASSETS.fetch(request);
+  },
+} satisfies ExportedHandler<Env>;
