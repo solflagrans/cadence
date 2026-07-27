@@ -7,6 +7,8 @@ import { formatValue } from "@/app/lib/data";
 import { Badge } from "@/src/shared/ui/badge/badge";
 import { ProgressBar } from "@/src/shared/ui/progress-bar/progress-bar";
 import type { ModalState } from "../model/modal-state";
+import { Icon } from "@/src/shared/ui/icon/icon";
+import { IconButton } from "@/src/shared/ui/icon-button/icon-button";
 
 export function PlanRows({
   data,
@@ -80,10 +82,11 @@ export function PlanRows({
                     })
                   }
                 >
-                  + Факт
+                  <Icon name="plus" size={14} /> Факт
                 </button>
               )}
-              <button
+              <IconButton
+                icon="more"
                 className="more-button"
                 onClick={() =>
                   setModal({
@@ -93,10 +96,8 @@ export function PlanRows({
                     itemId: item.id,
                   })
                 }
-                aria-label={`Изменить ${direction.name}`}
-              >
-                ···
-              </button>
+                label={`Изменить ${direction.name}`}
+              />
             </div>
           </article>
         );

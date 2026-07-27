@@ -12,8 +12,23 @@ export function SegmentedBar({
   data: PlannerData;
   compact?: boolean;
 }) {
+  const label = segments.length
+    ? segments
+        .map((segment) => {
+          const activity = data.activityTypes.find(
+            (item) => item.id === segment.activityId,
+          );
+          return `${activity?.name ?? "Без типа"} ${segment.percent}%`;
+        })
+        .join(", ")
+    : "Состав дня не задан";
+
   return (
-    <div className={`segment-bar ${compact ? "segment-bar-compact" : ""}`}>
+    <div
+      className={`segment-bar ${compact ? "segment-bar-compact" : ""}`}
+      role="img"
+      aria-label={label}
+    >
       {segments.map((segment, index) => {
         const activity = data.activityTypes.find(
           (item) => item.id === segment.activityId,

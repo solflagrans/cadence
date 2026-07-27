@@ -18,6 +18,7 @@ import { EmptyState } from "@/src/shared/ui/empty-state/empty-state";
 import { PageHeader } from "@/src/shared/ui/page-header/page-header";
 import { SegmentedBar } from "@/src/widgets/schedule/segmented-bar";
 import type { ModalState } from "../model/modal-state";
+import { Icon } from "@/src/shared/ui/icon/icon";
 
 export function SchedulePage({
   data,
@@ -65,8 +66,11 @@ export function SchedulePage({
     <>
       <PageHeader
         title="График"
+        eyebrow="Распределение времени"
+        description="Настройте состав дней и поддерживайте устойчивый ритм деятельности."
         actions={
           <Button
+            icon="plus"
             onClick={() =>
               setModal(
                 !data.activityTypes.length || mode === "types"
@@ -100,8 +104,21 @@ export function SchedulePage({
       </div>
       {mode === "calendar" ? (
         <>
+          {!!data.activityTypes.length && (
+            <div className="schedule-legend" aria-label="Типы деятельности">
+              {data.activityTypes
+                .filter((item) => !item.archived)
+                .sort((a, b) => a.order - b.order)
+                .map((activity) => (
+                  <span key={activity.id}>
+                    <i style={{ background: activity.color }} />
+                    {activity.name}
+                  </span>
+                ))}
+            </div>
+          )}
           <div className="schedule-toolbar">
-            <div className="range-switcher">
+            <div className="range-switcher" aria-label="Диапазон графика">
               {[14, 21, 30].map((value) => (
                 <button
                   key={value}
@@ -113,6 +130,11 @@ export function SchedulePage({
               ))}
             </div>
             <div className="tool-actions">
+              {selected.length > 0 && (
+                <span className="selection-count">
+                  Выбрано: {selected.length}
+                </span>
+              )}
               <button
                 disabled={selected.length !== 1}
                 onClick={() => {
@@ -124,10 +146,10 @@ export function SchedulePage({
                   }
                 }}
               >
-                Копировать
+                <Icon name="copy" size={15} /> Копировать
               </button>
               <button disabled={!copied || !selected.length} onClick={paste}>
-                Вставить
+                <Icon name="paste" size={15} /> Вставить
               </button>
               <button
                 disabled={!selected.length}
@@ -145,7 +167,7 @@ export function SchedulePage({
                   )
                 }
               >
-                Очистить
+                <Icon name="trash" size={15} /> Очистить
               </button>
             </div>
           </div>
@@ -218,12 +240,14 @@ export function SchedulePage({
                   className="text-link"
                   onClick={() => setModal({ kind: "activity", activity })}
                 >
-                  Изменить
+                  <Icon name="edit" size={15} /> Изменить
                 </button>
               </div>
             ))}
           {!data.activityTypes.length && (
             <EmptyState
+              icon="activity"
+              title="Создайте типы деятельности"
               text="Нет типов деятельности"
               action="Создать тип"
               onAction={() => setModal({ kind: "activity" })}

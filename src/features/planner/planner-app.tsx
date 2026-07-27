@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   type FormEvent,
   useEffect,
@@ -56,6 +57,8 @@ import { Badge } from "@/src/shared/ui/badge/badge";
 import { EmptyState } from "@/src/shared/ui/empty-state/empty-state";
 import { PageHeader } from "@/src/shared/ui/page-header/page-header";
 import { SaveIndicator } from "@/src/widgets/save-indicator/save-indicator";
+import { Icon, type IconName } from "@/src/shared/ui/icon/icon";
+import { IconButton } from "@/src/shared/ui/icon-button/icon-button";
 import { SegmentedBar } from "@/src/widgets/schedule/segmented-bar";
 import {
   navigate,
@@ -72,13 +75,18 @@ import {
   DirectionsPage,
 } from "./pages/directions-page";
 
-const NAV: { page: Route["page"]; label: string; short: string }[] = [
-  { page: "overview", label: "Обзор", short: "Обзор" },
-  { page: "today", label: "Сегодня", short: "Сегодня" },
-  { page: "plans", label: "Планы", short: "Планы" },
-  { page: "schedule", label: "График", short: "График" },
-  { page: "directions", label: "Направления", short: "Цели" },
-  { page: "settings", label: "Настройки", short: "Ещё" },
+const NAV: {
+  page: Route["page"];
+  label: string;
+  short: string;
+  icon: IconName;
+}[] = [
+  { page: "overview", label: "Обзор", short: "Обзор", icon: "home" },
+  { page: "today", label: "Сегодня", short: "Сегодня", icon: "today" },
+  { page: "plans", label: "Планы", short: "Планы", icon: "plans" },
+  { page: "schedule", label: "График", short: "График", icon: "schedule" },
+  { page: "directions", label: "Направления", short: "Цели", icon: "directions" },
+  { page: "settings", label: "Настройки", short: "Ещё", icon: "settings" },
 ];
 
 export default function PlannerApp({
@@ -126,11 +134,16 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
     <div className="app-shell">
       <aside className="sidebar">
         <button className="brand" onClick={() => navigate({ page: "overview" })}>
-          <span className="brand-mark">C</span>
-          <span>Cadence</span>
+          <span className="brand-mark">
+            <Image src="/favicon.png" alt="" width={34} height={34} priority />
+          </span>
+          <span className="brand-copy">
+            <strong>Cadence</strong>
+            <small>Персональный ритм</small>
+          </span>
         </button>
         <nav className="sidebar-nav" aria-label="Основная навигация">
-          {NAV.map((item, index) => (
+          {NAV.map((item) => (
             <button
               key={item.page}
               className={
@@ -142,8 +155,8 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
               }
               onClick={() => navigate({ page: item.page } as Route)}
             >
-              <span className="nav-index">{String(index + 1).padStart(2, "0")}</span>
-              {item.label}
+              <Icon name={item.icon} size={18} />
+              <span>{item.label}</span>
             </button>
           ))}
         </nav>
@@ -151,7 +164,9 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
           <SaveIndicator status={saveStatus} localOnly={localOnly} />
         </div>
         <div className="sidebar-foot sidebar-account">
-          <span className="avatar">{account ? accountInitial(account) : "Г"}</span>
+          <span className="avatar">
+            {account ? accountInitial(account) : <Icon name="user" size={17} />}
+          </span>
           <div className="sidebar-account-copy">
             <strong>{account?.name || "Гость"}</strong>
             <span>
@@ -162,11 +177,11 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
           </div>
           {account ? (
             <button className="sidebar-account-action" onClick={() => void signOut()}>
-              Выйти
+              <Icon name="logout" size={14} /> Выйти
             </button>
           ) : (
             <button className="sidebar-account-action" onClick={() => setAuthOpen(true)}>
-              Войти
+              <Icon name="login" size={14} /> Войти
             </button>
           )}
         </div>
@@ -174,7 +189,10 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
 
       <div className="mobile-topbar">
         <button className="brand" onClick={() => navigate({ page: "overview" })}>
-          <span className="brand-mark">C</span><span>Cadence</span>
+          <span className="brand-mark">
+            <Image src="/favicon.png" alt="" width={28} height={28} priority />
+          </span>
+          <span>Cadence</span>
         </button>
         <div className="mobile-meta">
           <span>{title}</span>
@@ -182,7 +200,7 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
         </div>
       </div>
 
-      <main className="content">
+      <main className={`content content-${route.page}`}>
         <div className="content-inner">
           {route.page === "overview" && <Overview data={data} setModal={setModal} />}
           {route.page === "today" && <Today data={data} setModal={setModal} />}
@@ -232,6 +250,7 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
             }
             onClick={() => navigate({ page: item.page } as Route)}
           >
+            <Icon name={item.icon} size={19} />
             <span>{item.short}</span>
           </button>
         ))}
@@ -382,15 +401,17 @@ function Overview({ data, setModal }: { data: PlannerData; setModal: (m: ModalSt
     <>
       <PageHeader
         title="Обзор"
+        eyebrow="Ваш ритм"
+        description="Главное на сегодня: график, текущие планы и результаты."
         meta={<span>{dateLabel(currentDate, { weekday: "long", day: "numeric", month: "long" })}</span>}
-        actions={<Button onClick={() => setModal({ kind: "fact", weekId })}>Добавить выполнение</Button>}
+        actions={<Button icon="plus" onClick={() => setModal({ kind: "fact", weekId })}>Добавить выполнение</Button>}
       />
       {attention.length > 0 && (
         <section className="attention-strip">
-          <strong>Требуется внимание</strong>
+          <strong><Icon name="alert" size={16} /> Требуется внимание</strong>
           <div>
             {attention.map((item) => (
-              <button key={item.text} onClick={item.action}>{item.text}<span>→</span></button>
+              <button key={item.text} onClick={item.action}>{item.text}<Icon name="arrow-right" size={14} /></button>
             ))}
           </div>
         </section>
@@ -398,7 +419,7 @@ function Overview({ data, setModal }: { data: PlannerData; setModal: (m: ModalSt
       <section className="card schedule-card">
         <div className="section-head">
           <h2>Рабочий график</h2>
-          <button className="text-link" onClick={() => navigate({ page: "schedule" })}>Открыть график →</button>
+          <button className="text-link" onClick={() => navigate({ page: "schedule" })}>Открыть график <Icon name="arrow-right" size={15} /></button>
         </div>
         <div className="week-strip">
           {days.map((day) => (
@@ -419,7 +440,7 @@ function Overview({ data, setModal }: { data: PlannerData; setModal: (m: ModalSt
         <section className="card">
           <div className="section-head">
             <div><span className="eyebrow">Текущий месяц</span><h2>{monthName(monthId)}</h2></div>
-            <button className="text-link" onClick={() => navigate({ page: "month", id: monthId })}>Открыть →</button>
+            <button className="text-link" onClick={() => navigate({ page: "month", id: monthId })}>Открыть <Icon name="arrow-right" size={15} /></button>
           </div>
           {month ? (
             <>
@@ -427,24 +448,24 @@ function Overview({ data, setModal }: { data: PlannerData; setModal: (m: ModalSt
               <PlanSummary data={data} month={month} />
             </>
           ) : (
-            <EmptyState text="На этот месяц пока нет плана" action="Запланировать месяц" onAction={() => setModal({ kind: "month-plan", monthId })} />
+            <EmptyState icon="plans" title="Месяц ещё не запланирован" text="Добавьте направления и задайте ориентиры на текущий месяц." action="Запланировать месяц" onAction={() => setModal({ kind: "month-plan", monthId })} />
           )}
         </section>
         <section className="card">
           <div className="section-head">
             <div><span className="eyebrow">Текущая неделя</span><h2>{weekLabel(weekId)}</h2></div>
-            <button className="text-link" onClick={() => navigate({ page: "week", id: weekId })}>Открыть →</button>
+            <button className="text-link" onClick={() => navigate({ page: "week", id: weekId })}>Открыть <Icon name="arrow-right" size={15} /></button>
           </div>
           {week ? (
             <>
               <PlanRows data={data} items={week.items} scope="week" planId={week.id} weekId={week.id} setModal={setModal} />
               <div className="inline-actions">
-                <Button variant="secondary" onClick={() => setModal({ kind: "fact", weekId })}>Добавить выполнение</Button>
-                <Button variant="ghost" onClick={() => setModal({ kind: "extra", weekId })}>Добавить результат</Button>
+                <Button icon="plus" variant="secondary" onClick={() => setModal({ kind: "fact", weekId })}>Добавить выполнение</Button>
+                <Button icon="spark" variant="ghost" onClick={() => setModal({ kind: "extra", weekId })}>Добавить результат</Button>
               </div>
             </>
           ) : (
-            <EmptyState text="Эта неделя ещё не запланирована" action="Запланировать неделю" onAction={() => setModal({ kind: "week-plan", weekId })} />
+            <EmptyState icon="today" title="Неделя ещё не запланирована" text="Сформируйте недельный план на основе направлений месяца." action="Запланировать неделю" onAction={() => setModal({ kind: "week-plan", weekId })} />
           )}
         </section>
       </div>
@@ -486,8 +507,10 @@ function Today({ data, setModal }: { data: PlannerData; setModal: (m: ModalState
     <>
       <PageHeader
         title="Сегодня"
+        eyebrow="Фокус дня"
+        description="Состав дня, рабочее время и выполнение недельного плана."
         meta={dateLabel(today, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-        actions={<Button variant="secondary" onClick={() => setModal({ kind: "day", date: today })}>Изменить состав дня</Button>}
+        actions={<Button icon="edit" variant="secondary" onClick={() => setModal({ kind: "day", date: today })}>Изменить состав дня</Button>}
       />
       <section className="today-hero card">
         <SegmentedBar segments={day.segments} data={data} />
@@ -533,7 +556,7 @@ function Today({ data, setModal }: { data: PlannerData; setModal: (m: ModalState
               </div>
             </>
           ) : (
-            <EmptyState text="Рабочий период не указан" action="Добавить период" onAction={() => setModal({ kind: "work", date: today })} />
+            <EmptyState icon="schedule" title="Рабочий период не указан" text="Укажите начало, окончание и перерывы рабочего дня." action="Добавить период" onAction={() => setModal({ kind: "work", date: today })} />
           )}
         </section>
         <section className="card">
@@ -544,7 +567,7 @@ function Today({ data, setModal }: { data: PlannerData; setModal: (m: ModalState
               <Button variant="secondary" onClick={() => setModal({ kind: "fact", weekId })}>Добавить выполнение</Button>
             </>
           ) : (
-            <EmptyState text="Эта неделя ещё не запланирована" action="Запланировать неделю" onAction={() => setModal({ kind: "week-plan", weekId })} />
+            <EmptyState icon="today" title="Неделя ещё не запланирована" text="Добавьте направления, чтобы отмечать выполнение сегодня." action="Запланировать неделю" onAction={() => setModal({ kind: "week-plan", weekId })} />
           )}
         </section>
       </div>
@@ -585,12 +608,13 @@ function MonthPage({
     <>
       <PageHeader
         title={monthName(monthId)}
+        eyebrow="Месячный план"
         back={() => navigate({ page: "plans" })}
         meta={<Badge tone={periodStatus(monthId, "month") === "Текущий" ? "blue" : "neutral"}>{periodStatus(monthId, "month")}</Badge>}
         actions={
           <div className="period-switcher">
-            <button onClick={() => navigate({ page: "month", id: iso(prev).slice(0, 7) })}>←</button>
-            <button onClick={() => navigate({ page: "month", id: iso(next).slice(0, 7) })}>→</button>
+            <IconButton icon="chevron-left" label="Предыдущий месяц" onClick={() => navigate({ page: "month", id: iso(prev).slice(0, 7) })} />
+            <IconButton icon="chevron-right" label="Следующий месяц" onClick={() => navigate({ page: "month", id: iso(next).slice(0, 7) })} />
           </div>
         }
       />
@@ -611,7 +635,7 @@ function MonthPage({
             <PlanSummary data={data} month={month} />
           </>
         ) : (
-          <EmptyState text="На этот месяц пока нет плана" action="Запланировать месяц" onAction={() => setModal({ kind: "month-plan", monthId })} />
+          <EmptyState icon="plans" title="Месяц ещё не запланирован" text="Выберите активные направления и задайте плановые значения." action="Запланировать месяц" onAction={() => setModal({ kind: "month-plan", monthId })} />
         )}
       </section>
       <section className="card extras-card">
@@ -620,7 +644,7 @@ function MonthPage({
           <div className="extras-list">
             {extras.map((item) => (
               <div key={item.id}>
-                <span className="result-check">✓</span>
+                <span className="result-check"><Icon name="check" size={14} /></span>
                 <div><strong>{item.title}</strong><span>{dateLabel(item.date)} · {weekLabel(item.weekId)}</span></div>
                 <strong>{formatValue(item.value, item.metric, item.unit)}</strong>
               </div>
@@ -651,12 +675,13 @@ function WeekPage({
     <>
       <PageHeader
         title={weekLabel(weekId)}
+        eyebrow="Недельный план"
         back={() => navigate({ page: "month", id: monthId })}
         meta={<><button className="crumb-link" onClick={() => navigate({ page: "month", id: monthId })}>{monthName(monthId)}</button><Badge tone={periodStatus(weekId, "week") === "Текущая" ? "blue" : "neutral"}>{periodStatus(weekId, "week")}</Badge></>}
         actions={
           <div className="period-switcher">
-            <button onClick={() => navigate({ page: "week", id: iso(addDays(parseDate(weekId), -7)) })}>←</button>
-            <button onClick={() => navigate({ page: "week", id: iso(addDays(parseDate(weekId), 7)) })}>→</button>
+            <IconButton icon="chevron-left" label="Предыдущая неделя" onClick={() => navigate({ page: "week", id: iso(addDays(parseDate(weekId), -7)) })} />
+            <IconButton icon="chevron-right" label="Следующая неделя" onClick={() => navigate({ page: "week", id: iso(addDays(parseDate(weekId), 7)) })} />
           </div>
         }
       />
@@ -677,7 +702,7 @@ function WeekPage({
             </div>
           </>
         ) : (
-          <EmptyState text="Эта неделя ещё не запланирована" action="Запланировать неделю" onAction={() => setModal({ kind: "week-plan", weekId })} />
+          <EmptyState icon="today" title="Неделя ещё не запланирована" text="Распределите месячные направления на эту неделю." action="Запланировать неделю" onAction={() => setModal({ kind: "week-plan", weekId })} />
         )}
       </section>
       <ExtrasBlock data={data} weekId={weekId} setModal={setModal} />
@@ -689,11 +714,11 @@ function ExtrasBlock({ data, weekId, setModal }: { data: PlannerData; weekId: st
   const extras = data.extraResults.filter((item) => item.weekId === weekId);
   return (
     <section className="card extras-card">
-      <div className="section-head"><h2>Дополнительные результаты</h2><Button variant="ghost" onClick={() => setModal({ kind: "extra", weekId })}>+ Добавить результат</Button></div>
+      <div className="section-head"><h2>Дополнительные результаты</h2><Button icon="plus" variant="ghost" onClick={() => setModal({ kind: "extra", weekId })}>Добавить результат</Button></div>
       {extras.length ? (
         <div className="extras-list">
           {extras.map((item) => (
-            <div key={item.id}><span className="result-check">✓</span><div><strong>{item.title}</strong><span>{dateLabel(item.date)}</span></div><strong>{formatValue(item.value, item.metric, item.unit)}</strong></div>
+            <div key={item.id}><span className="result-check"><Icon name="check" size={14} /></span><div><strong>{item.title}</strong><span>{dateLabel(item.date)}</span></div><strong>{formatValue(item.value, item.metric, item.unit)}</strong></div>
           ))}
         </div>
       ) : <p className="compact-empty">Нет дополнительных результатов</p>}
@@ -909,7 +934,7 @@ function DayForm({
   if (!activeTypes.length) {
     return (
       <Modal title={dateLabel(date, { weekday: "long", day: "numeric", month: "long" })} onClose={close}>
-        <EmptyState text="Нет типов деятельности" action="Закрыть" onAction={close} />
+        <EmptyState icon="activity" title="Нет типов деятельности" text="Сначала создайте тип деятельности в разделе «График»." action="Закрыть" onAction={close} />
       </Modal>
     );
   }
@@ -937,11 +962,11 @@ function DayForm({
                 {activeTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
               <div className="percent-input"><input type="number" min="1" max="100" value={segment.percent} onChange={(e) => setSegments((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, percent: Number(e.target.value) } : item))} /><span>%</span></div>
-              <button type="button" className="icon-button" disabled={segments.length === 1} onClick={() => setSegments((items) => items.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+              <IconButton type="button" icon="x" label="Удалить сегмент" disabled={segments.length === 1} onClick={() => setSegments((items) => items.filter((_, itemIndex) => itemIndex !== index))} />
             </div>
           ))}
         </div>
-        <button type="button" className="add-line" onClick={() => setSegments((items) => [...items, { activityId: activeTypes.find((item) => !items.some((segment) => segment.activityId === item.id))?.id ?? activeTypes[0].id, percent: 0 }])}>+ Добавить сегмент</button>
+        <button type="button" className="add-line" onClick={() => setSegments((items) => [...items, { activityId: activeTypes.find((item) => !items.some((segment) => segment.activityId === item.id))?.id ?? activeTypes[0].id, percent: 0 }])}><Icon name="plus" size={15} />Добавить сегмент</button>
         <div className={`sum-line ${total === 100 ? "valid" : "invalid"}`}><span>Сумма</span><strong>{total}%</strong></div>
         {total !== 100 && <p className="form-error">Сумма должна составлять 100%</p>}
         <div className="modal-actions"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button disabled={total !== 100}>Сохранить</Button></div>
@@ -990,11 +1015,11 @@ function WorkForm({
               <input type="time" value={item.start} onChange={(e) => setBreaks((items) => items.map((entry, i) => i === index ? { ...entry, start: e.target.value } : entry))} />
               <span>—</span>
               <input type="time" value={item.end} onChange={(e) => setBreaks((items) => items.map((entry, i) => i === index ? { ...entry, end: e.target.value } : entry))} />
-              <button type="button" className="icon-button" onClick={() => setBreaks((items) => items.filter((_, i) => i !== index))}>×</button>
+              <IconButton type="button" icon="x" label="Удалить перерыв" onClick={() => setBreaks((items) => items.filter((_, i) => i !== index))} />
             </div>
           ))}
         </div>
-        <button type="button" className="add-line" onClick={() => setBreaks((items) => [...items, { id: uid("break"), start: "17:00", end: "17:30" }])}>+ Добавить перерыв</button>
+        <button type="button" className="add-line" onClick={() => setBreaks((items) => [...items, { id: uid("break"), start: "17:00", end: "17:30" }])}><Icon name="plus" size={15} />Добавить перерыв</button>
         <div className="calculation-box">
           <span>Период <strong>{formatMinutes(mins.total)}</strong></span>
           <span>Перерывы <strong>{formatMinutes(mins.breaks)}</strong></span>
@@ -1222,7 +1247,7 @@ function PlanForm({
                   ) : (
                     <input type="number" min="0" step="0.1" value={row.target} onChange={(e) => setRows((items) => items.map((item, i) => i === index ? { ...item, target: Number(e.target.value) } : item))} />
                   )}
-                  <button type="button" className="icon-button" onClick={() => setRows((items) => items.filter((_, i) => i !== index))}>×</button>
+                  <IconButton type="button" icon="x" label="Удалить направление" onClick={() => setRows((items) => items.filter((_, i) => i !== index))} />
                 </div>
               );
             })}
@@ -1231,7 +1256,7 @@ function PlanForm({
             <button type="button" className="add-line" onClick={() => {
               const candidate = candidates.find((item) => !rows.some((row) => row.directionId === item.id));
               if (candidate) setRows((items) => [...items, { directionId: candidate.id, target: 1 }]);
-            }}>+ Добавить направление</button>
+            }}><Icon name="plus" size={15} />Добавить направление</button>
           )}
           <div className="modal-actions"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button disabled={!rows.length}>Сохранить план</Button></div>
         </form>
@@ -1322,15 +1347,15 @@ function EditItemForm({
           <label className="field"><span>План, {planMetric.metric === "percent" ? "%" : planMetric.unit || metricName[planMetric.metric].toLowerCase()}</span><input type="number" min="0" step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
         )}
         <div className="action-list">
-          <button type="button" onClick={() => setModal({ kind: "pause", scope, planId, itemId, returnToEdit: true })}>{item.paused ? "Изменить приостановку" : scope === "month" ? "Приостановить до конца месяца" : "Приостановить на неделю"}<span>→</span></button>
+          <button type="button" onClick={() => setModal({ kind: "pause", scope, planId, itemId, returnToEdit: true })}>{item.paused ? "Изменить приостановку" : scope === "month" ? "Приостановить до конца месяца" : "Приостановить на неделю"}<Icon name="arrow-right" size={15} /></button>
           {item.paused && <button type="button" onClick={() => {
             update((current) => {
               const currentPlan = findPlan(current, scope, planId)!;
               return replaceItem(current, currentPlan.items.map((entry) => entry.id === itemId ? { ...entry, paused: undefined } : entry));
             }, "Направление возобновлено");
             close();
-          }}>Возобновить<span>→</span></button>}
-          <button type="button" onClick={() => setModal({ kind: "details", scope, planId, itemId, returnToEdit: true })}>Подробности<span>→</span></button>
+          }}>Возобновить<Icon name="arrow-right" size={15} /></button>}
+          <button type="button" onClick={() => setModal({ kind: "details", scope, planId, itemId, returnToEdit: true })}>Подробности<Icon name="arrow-right" size={15} /></button>
           {scope === "week" && <button type="button" className="danger-link" onClick={() => {
             if (!window.confirm("Удалить направление из недельного плана?")) return;
             update((current) => {
@@ -1338,7 +1363,7 @@ function EditItemForm({
               return replaceItem(current, currentPlan.items.filter((entry) => entry.id !== itemId));
             }, "Направление удалено из плана");
             close();
-          }}>Удалить из плана<span>×</span></button>}
+          }}>Удалить из плана<Icon name="trash" size={15} /></button>}
         </div>
         <div className="modal-actions"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button>Сохранить</Button></div>
       </form>

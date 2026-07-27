@@ -6,22 +6,35 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-  font-size: 14px;
-  line-height: 1.45;
+  font-family: var(--font-geist-sans), "Inter Variable", Inter, ui-sans-serif, -apple-system,
+    BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 button, select { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .48; }
-button, input, select { -webkit-tap-highlight-color: transparent; }
-button:focus-visible, input:focus-visible, select:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--accent) 26%, transparent);
+button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
-input, select {
+input, select, textarea {
   color: var(--text);
   background: var(--surface-strong);
   border: 1px solid var(--line-strong);
+}
+
+::selection {
+  color: var(--text);
+  background: var(--accent-soft-strong);
+}
+
+button, strong, h1, h2, h3 { font-variation-settings: "wght" 620; }
+input[type="number"], input[type="time"], .stat-card strong, .row-value {
+  font-variant-numeric: tabular-nums;
 }

@@ -18,6 +18,8 @@ import { Button } from "@/src/shared/ui/button/button";
 import { EmptyState } from "@/src/shared/ui/empty-state/empty-state";
 import { PageHeader } from "@/src/shared/ui/page-header/page-header";
 import { ProgressBar } from "@/src/shared/ui/progress-bar/progress-bar";
+import { Icon } from "@/src/shared/ui/icon/icon";
+import { IconButton } from "@/src/shared/ui/icon-button/icon-button";
 import type { ModalState } from "../model/modal-state";
 
 export function DirectionsPage({
@@ -52,19 +54,25 @@ export function DirectionsPage({
     <>
       <PageHeader
         title="Направления"
+        eyebrow="Система целей"
+        description="Все направления, их метрики и состояние текущего месяца."
         actions={
-          <Button onClick={() => setModal({ kind: "direction" })}>
+          <Button icon="plus" onClick={() => setModal({ kind: "direction" })}>
             Новое направление
           </Button>
         }
       />
       <div className="filter-bar">
-        <input
-          className="search-input"
-          placeholder="Поиск"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
+        <div className="search-wrap">
+          <Icon name="search" size={18} />
+          <input
+            className="search-input"
+            placeholder="Найти направление"
+            aria-label="Поиск направлений"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
         <select
           value={filter}
           onChange={(event) =>
@@ -127,22 +135,32 @@ export function DirectionsPage({
                       : "Архив"}
                 </Badge>
               </span>
-              <span>
-                {item
-                  ? `${formatValue(fact, item.metric, item.unit)} / ${formatValue(item.target, item.metric, item.unit)}`
-                  : "—"}
-              </span>
-              <button
+              <div className="table-row-progress">
+                <span>
+                  {item
+                    ? `${formatValue(fact, item.metric, item.unit)} / ${formatValue(item.target, item.metric, item.unit)}`
+                    : "Не запланировано"}
+                </span>
+                {item && (
+                  <ProgressBar
+                    value={progress(fact, item.target, item.metric)}
+                    color={direction.color}
+                  />
+                )}
+              </div>
+              <IconButton
+                icon="more"
                 className="more-button"
                 onClick={() => setModal({ kind: "direction", direction })}
-              >
-                ···
-              </button>
+                label={`Действия: ${direction.name}`}
+              />
             </div>
           );
         })}
         {!filtered.length && (
           <EmptyState
+            icon={query || filter !== "all" ? "search" : "directions"}
+            title={query || filter !== "all" ? "Ничего не найдено" : "Начните с направления"}
             text={
               query || filter !== "all"
                 ? "Направления не найдены"
@@ -170,6 +188,8 @@ export function DirectionDetailsPage({
   if (!direction) {
     return (
       <EmptyState
+        icon="directions"
+        title="Направление не найдено"
         text="Направление не найдено"
         action="К списку"
         onAction={() => navigate({ page: "directions" })}
@@ -192,6 +212,7 @@ export function DirectionDetailsPage({
     <>
       <PageHeader
         title={direction.name}
+        eyebrow="Направление"
         back={() => navigate({ page: "directions" })}
         meta={
           <>
@@ -210,6 +231,7 @@ export function DirectionDetailsPage({
         }
         actions={
           <Button
+            icon="edit"
             variant="secondary"
             onClick={() => setModal({ kind: "direction", direction })}
           >
