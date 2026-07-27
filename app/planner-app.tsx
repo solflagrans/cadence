@@ -518,34 +518,36 @@ export default function PlannerApp() {
       </div>
 
       <main className="content">
-        {route.page === "overview" && <Overview data={data} setModal={setModal} />}
-        {route.page === "today" && <Today data={data} setModal={setModal} />}
-        {route.page === "plans" && <Plans data={data} />}
-        {route.page === "month" && (
-          <MonthPage data={data} monthId={route.id} setModal={setModal} />
-        )}
-        {route.page === "week" && (
-          <WeekPage data={data} weekId={route.id} setModal={setModal} />
-        )}
-        {route.page === "schedule" && (
-          <Schedule data={data} update={update} setModal={setModal} />
-        )}
-        {route.page === "directions" && (
-          <Directions data={data} setModal={setModal} />
-        )}
-        {route.page === "direction" && (
-          <DirectionPage data={data} id={route.id} setModal={setModal} />
-        )}
-        {route.page === "settings" && (
-          <Settings
-            data={data}
-            update={update}
-            setModal={setModal}
-            account={account}
-            openAuth={() => setAuthOpen(true)}
-            signOut={() => void signOut()}
-          />
-        )}
+        <div className="content-inner">
+          {route.page === "overview" && <Overview data={data} setModal={setModal} />}
+          {route.page === "today" && <Today data={data} setModal={setModal} />}
+          {route.page === "plans" && <Plans data={data} />}
+          {route.page === "month" && (
+            <MonthPage data={data} monthId={route.id} setModal={setModal} />
+          )}
+          {route.page === "week" && (
+            <WeekPage data={data} weekId={route.id} setModal={setModal} />
+          )}
+          {route.page === "schedule" && (
+            <Schedule data={data} update={update} setModal={setModal} />
+          )}
+          {route.page === "directions" && (
+            <Directions data={data} setModal={setModal} />
+          )}
+          {route.page === "direction" && (
+            <DirectionPage data={data} id={route.id} setModal={setModal} />
+          )}
+          {route.page === "settings" && (
+            <Settings
+              data={data}
+              update={update}
+              setModal={setModal}
+              account={account}
+              openAuth={() => setAuthOpen(true)}
+              signOut={() => void signOut()}
+            />
+          )}
+        </div>
       </main>
 
       <nav className="mobile-nav" aria-label="Основная навигация">
@@ -847,18 +849,22 @@ function Today({ data, setModal }: { data: PlannerData; setModal: (m: ModalState
       />
       <section className="today-hero card">
         <SegmentedBar segments={day.segments} data={data} />
-        <div className="today-composition">
-          {day.segments.map((segment) => {
-            const activity = data.activityTypes.find((item) => item.id === segment.activityId);
-            return (
-              <div key={segment.activityId}>
-                <span className="legend-dot" style={{ background: activity?.color }} />
-                <span>{activity?.name}</span>
-                <strong>{segment.percent}%</strong>
-              </div>
-            );
-          })}
-        </div>
+        {day.segments.length ? (
+          <div className="today-composition">
+            {day.segments.map((segment) => {
+              const activity = data.activityTypes.find((item) => item.id === segment.activityId);
+              return (
+                <div key={segment.activityId}>
+                  <span className="legend-dot" style={{ background: activity?.color }} />
+                  <span>{activity?.name}</span>
+                  <strong>{segment.percent}%</strong>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="today-empty">Состав дня пока не задан</p>
+        )}
       </section>
       <div className="dashboard-grid today-grid">
         <section className="card">
