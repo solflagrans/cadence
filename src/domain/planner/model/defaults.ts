@@ -9,6 +9,7 @@ export const createInitialData = (): PlannerData => ({
   weeks: [],
   completions: [],
   extraResults: [],
+  reviews: [],
   settings: {
     timezone: "Europe/Moscow",
     weekStartsOn: "monday",

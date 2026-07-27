@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   DayPlan,
   PlannerData,
@@ -29,11 +29,25 @@ export function SchedulePage({
   update: PlannerUpdate;
   setModal: (modal: ModalState) => void;
 }) {
-  const [mode, setMode] = useState<"calendar" | "types">("calendar");
+  const [mode, setMode] = useState<"calendar" | "types">(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("view") === "types"
+      ? "types"
+      : "calendar",
+  );
   const [range, setRange] = useState<14 | 21 | 30>(
-    data.settings.scheduleRange,
+    () => {
+      if (typeof window === "undefined") return data.settings.scheduleRange;
+      const value = Number(
+        new URLSearchParams(window.location.search).get("range"),
+      );
+      return value === 14 || value === 21 || value === 30
+        ? value
+        : data.settings.scheduleRange;
+    },
   );
   const [selected, setSelected] = useState<string[]>([]);
+  const [selectionMode, setSelectionMode] = useState(false);
   const [copied, setCopied] = useState<DayPlan["segments"] | null>(null);
   const start = startOfWeek(new Date());
   const visibleDays = Array.from({ length: range }, (_, index) => {
@@ -44,6 +58,31 @@ export function SchedulePage({
       breaks: [],
     };
   });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (mode === "types") params.set("view", "types");
+    else params.delete("view");
+    if (range !== data.settings.scheduleRange) {
+      params.set("range", String(range));
+    } else {
+      params.delete("range");
+    }
+    const search = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${search ? `?${search}` : ""}`,
+    );
+  }, [mode, range, data.settings.scheduleRange]);
+
+  const changeRange = (value: 14 | 21 | 30) => {
+    setRange(value);
+    update((current) => ({
+      ...current,
+      settings: { ...current.settings, scheduleRange: value },
+    }));
+  };
 
   const paste = () => {
     if (!copied || !selected.length) return;
@@ -123,13 +162,25 @@ export function SchedulePage({
                 <button
                   key={value}
                   className={range === value ? "active" : ""}
-                  onClick={() => setRange(value as 14 | 21 | 30)}
+                  onClick={() => changeRange(value as 14 | 21 | 30)}
                 >
                   {value} дней
                 </button>
               ))}
             </div>
             <div className="tool-actions">
+              <button
+                className={selectionMode ? "active" : ""}
+                onClick={() => {
+                  setSelectionMode((current) => !current);
+                  setSelected([]);
+                }}
+              >
+                <Icon name="check" size={15} />
+                {selectionMode ? "Готово" : "Выбрать дни"}
+              </button>
+              {selectionMode && (
+                <>
               {selected.length > 0 && (
                 <span className="selection-count">
                   Выбрано: {selected.length}
@@ -169,6 +220,8 @@ export function SchedulePage({
               >
                 <Icon name="trash" size={15} /> Очистить
               </button>
+                </>
+              )}
             </div>
           </div>
           <section className="calendar-grid">
@@ -178,26 +231,29 @@ export function SchedulePage({
                 <button
                   key={day.date}
                   className={`calendar-day card ${isSelected ? "selected" : ""} ${day.date === iso(new Date()) ? "today" : ""}`}
-                  onClick={(event) => {
-                    if (event.shiftKey) {
-                      setSelected((current) =>
-                        isSelected
-                          ? current.filter((date) => date !== day.date)
-                          : [...current, day.date],
-                      );
-                    } else {
+                  onClick={() => {
+                    if (!selectionMode) {
                       setSelected([day.date]);
+                      setModal({ kind: "day", date: day.date });
+                      return;
                     }
+                    setSelected((current) =>
+                      isSelected
+                        ? current.filter((date) => date !== day.date)
+                        : [...current, day.date],
+                    );
                   }}
-                  onDoubleClick={() =>
-                    setModal({ kind: "day", date: day.date })
-                  }
                 >
                   <div>
                     <span>
                       {dateLabel(day.date, { weekday: "short" })}
                     </span>
                     <strong>{parseDate(day.date).getDate()}</strong>
+                    {selectionMode && (
+                      <i className="day-select-mark">
+                        {isSelected && <Icon name="check" size={12} />}
+                      </i>
+                    )}
                   </div>
                   <SegmentedBar segments={day.segments} data={data} />
                   <div className="calendar-legend">

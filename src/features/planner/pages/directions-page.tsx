@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   Direction,
   PlannerData,
@@ -29,16 +29,49 @@ export function DirectionsPage({
   data: PlannerData;
   setModal: (modal: ModalState) => void;
 }) {
-  const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<
-    "all" | Direction["availability"] | "in-month" | "outside-month"
-  >("all");
+    "all" | Direction["availability"] | "in-month" | "outside-month" | "trash"
+  >(() => {
+    if (typeof window === "undefined") return "all";
+    const value = new URLSearchParams(window.location.search).get("filter");
+    if (
+      value === "active" ||
+      value === "paused" ||
+      value === "archived" ||
+      value === "in-month" ||
+      value === "outside-month" ||
+      value === "trash"
+    ) {
+      return value;
+    }
+    return "all";
+  });
+  const [query, setQuery] = useState(() =>
+    typeof window === "undefined"
+      ? ""
+      : new URLSearchParams(window.location.search).get("query") ?? "",
+  );
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (query) params.set("query", query);
+    else params.delete("query");
+    if (filter !== "all") params.set("filter", filter);
+    else params.delete("filter");
+    const search = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${search ? `?${search}` : ""}`,
+    );
+  }, [query, filter]);
   const month = data.months.find(
     (item) => item.id === iso(new Date()).slice(0, 7),
   );
   const filtered = data.directions
     .filter((item) => item.name.toLowerCase().includes(query.toLowerCase()))
     .filter((item) => {
+      if (filter === "trash") return Boolean(item.deletedAt);
+      if (item.deletedAt) return false;
       if (filter === "all") return true;
       if (filter === "in-month") {
         return month?.items.some((plan) => plan.directionId === item.id);
@@ -85,6 +118,7 @@ export function DirectionsPage({
           <option value="archived">Архивные</option>
           <option value="in-month">В текущем месяце</option>
           <option value="outside-month">Не в текущем месяце</option>
+          <option value="trash">Корзина</option>
         </select>
       </div>
       <section className="card direction-table">
@@ -104,9 +138,13 @@ export function DirectionsPage({
             <div className="table-row" key={direction.id}>
               <button
                 className="direction-name"
-                onClick={() =>
-                  navigate({ page: "direction", id: direction.id })
-                }
+                onClick={() => {
+                  window.sessionStorage.setItem(
+                    "cadence:directions:return",
+                    `${window.location.pathname}${window.location.search}`,
+                  );
+                  navigate({ page: "direction", id: direction.id });
+                }}
               >
                 <span
                   className="direction-dot"
@@ -121,14 +159,18 @@ export function DirectionsPage({
               <span>
                 <Badge
                   tone={
-                    direction.availability === "active"
+                    direction.deletedAt
+                      ? "red"
+                      : direction.availability === "active"
                       ? "green"
                       : direction.availability === "paused"
                         ? "amber"
                         : "neutral"
                   }
                 >
-                  {direction.availability === "active"
+                  {direction.deletedAt
+                    ? "Корзина"
+                    : direction.availability === "active"
                     ? "Активно"
                     : direction.availability === "paused"
                       ? "Приостановлено"
@@ -166,8 +208,15 @@ export function DirectionsPage({
                 ? "Направления не найдены"
                 : "Нет направлений"
             }
-            action="Создать направление"
-            onAction={() => setModal({ kind: "direction" })}
+            action={filter === "trash" ? "Показать направления" : "Создать направление"}
+            onAction={() => {
+              if (filter === "trash") {
+                setFilter("all");
+                setQuery("");
+              } else {
+                setModal({ kind: "direction" });
+              }
+            }}
           />
         )}
       </section>
@@ -213,13 +262,29 @@ export function DirectionDetailsPage({
       <PageHeader
         title={direction.name}
         eyebrow="Направление"
-        back={() => navigate({ page: "directions" })}
+        back={() => {
+          const returnPath = window.sessionStorage.getItem(
+            "cadence:directions:return",
+          );
+          navigate({ page: "directions" });
+          if (returnPath?.startsWith("/directions")) {
+            window.history.replaceState({}, "", returnPath);
+          }
+        }}
         meta={
           <>
             <Badge
-              tone={direction.availability === "active" ? "green" : "amber"}
+              tone={
+                direction.deletedAt
+                  ? "red"
+                  : direction.availability === "active"
+                    ? "green"
+                    : "amber"
+              }
             >
-              {direction.availability === "active"
+              {direction.deletedAt
+                ? "Корзина"
+                : direction.availability === "active"
                 ? "Активно"
                 : "Приостановлено"}
             </Badge>

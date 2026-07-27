@@ -11,6 +11,7 @@ export function SaveIndicator({
     saving: localOnly ? "Сохранение локально…" : "Сохранение…",
     saved: localOnly ? "Сохранено локально" : "Сохранено",
     error: "Ошибка сохранения",
+    conflict: "Конфликт версий",
   }[status];
 
   return (

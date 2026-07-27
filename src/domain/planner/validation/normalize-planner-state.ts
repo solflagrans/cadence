@@ -11,6 +11,7 @@ import type {
   MetricType,
   MonthPlan,
   PlannerData,
+  PeriodReview,
   PlanItem,
   WeekPlan,
 } from "@/src/domain/planner/model/types";
@@ -67,6 +68,7 @@ const activity = (entry: UnknownRecord): ActivityType | null => {
 const direction = (entry: UnknownRecord): Direction | null => {
   const id = requiredString(entry.id);
   if (!id) return null;
+  const deletedAt = string(entry.deletedAt);
   return {
     id,
     name: string(entry.name, "Без названия"),
@@ -77,6 +79,7 @@ const direction = (entry: UnknownRecord): Direction | null => {
       entry.availability === "paused" || entry.availability === "archived"
         ? entry.availability
         : "active",
+    ...(deletedAt ? { deletedAt } : {}),
     metricHistory: list(entry.metricHistory, (history) => ({
       metric: metric(history.metric),
       unit: string(history.unit),
@@ -191,6 +194,19 @@ const extraResult = (entry: UnknownRecord): ExtraResult | null => {
   };
 };
 
+const review = (entry: UnknownRecord): PeriodReview | null => {
+  const id = requiredString(entry.id);
+  const periodId = requiredString(entry.periodId);
+  if (!id || !periodId) return null;
+  return {
+    id,
+    scope: entry.scope === "week" ? "week" : "month",
+    periodId,
+    note: string(entry.note),
+    updatedAt: string(entry.updatedAt),
+  };
+};
+
 const settings = (value: unknown): AppSettings => {
   const defaults = createInitialData().settings;
   if (!isRecord(value)) return defaults;
@@ -224,6 +240,7 @@ export const normalizePlannerData = (value: unknown): PlannerData | null => {
     weeks: list(value.weeks, week),
     completions: list(value.completions, completion),
     extraResults: list(value.extraResults, extraResult),
+    reviews: list(value.reviews, review),
     settings: settings(value.settings),
   };
 };

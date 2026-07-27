@@ -40,6 +40,8 @@ import type { AccountIdentity } from "@/app/lib/auth/types";
 import {
   addDirection,
   deleteDirection,
+  moveDirectionToTrash,
+  restoreDirection,
   updateDirection,
 } from "@/src/domain/planner/commands/directions";
 import {
@@ -49,6 +51,7 @@ import {
 } from "@/src/domain/planner/commands/plans";
 import {
   PlannerProvider,
+  type PlannerUpdate,
   usePlanner,
 } from "@/src/application/planner/planner-provider";
 import { Button } from "@/src/shared/ui/button/button";
@@ -67,6 +70,8 @@ import {
 import type { ModalState } from "./model/modal-state";
 import { PlanRows } from "./widgets/plan-rows";
 import { PlanSummary } from "./widgets/plan-summary";
+import { TodayPlan } from "./widgets/today-plan";
+import { PeriodReview } from "./widgets/period-review";
 import { PlansPage } from "./pages/plans-page";
 import { SettingsPage } from "./pages/settings-page";
 import { SchedulePage } from "./pages/schedule-page";
@@ -109,6 +114,13 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
     account,
     localOnly,
     toast,
+    canUndo,
+    undo,
+    saveIssue,
+    retrySave,
+    resolveConflict,
+    accountMigration,
+    resolveAccountMigration,
     signOut,
     refreshSession,
   } = usePlanner();
@@ -202,14 +214,57 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
 
       <main className={`content content-${route.page}`}>
         <div className="content-inner">
+          {saveIssue && (
+            <section
+              className={`sync-banner sync-banner-${saveIssue.kind}`}
+              role="alert"
+            >
+              <Icon name="alert" size={18} />
+              <div>
+                <strong>
+                  {saveIssue.kind === "conflict"
+                    ? "Данные изменены на другом устройстве"
+                    : "Не удалось сохранить данные в облаке"}
+                </strong>
+                <span>
+                  {saveIssue.kind === "conflict"
+                    ? "Выберите, какую версию оставить."
+                    : "Локальная резервная копия сохранена на этом устройстве."}
+                </span>
+              </div>
+              <div className="sync-banner-actions">
+                {saveIssue.kind === "conflict" ? (
+                  <>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      onClick={() => void resolveConflict("remote")}
+                    >
+                      Загрузить облачную
+                    </Button>
+                    <Button
+                      size="small"
+                      onClick={() => void resolveConflict("local")}
+                    >
+                      Сохранить текущую
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="small" onClick={() => void retrySave()}>
+                    Повторить
+                  </Button>
+                )}
+              </div>
+            </section>
+          )}
           {route.page === "overview" && <Overview data={data} setModal={setModal} />}
-          {route.page === "today" && <Today data={data} setModal={setModal} />}
+          {route.page === "today" && <Today data={data} update={update} setModal={setModal} />}
           {route.page === "plans" && <PlansPage data={data} />}
           {route.page === "month" && (
-            <MonthPage data={data} monthId={route.id} setModal={setModal} />
+            <MonthPage data={data} monthId={route.id} update={update} setModal={setModal} />
           )}
           {route.page === "week" && (
-            <WeekPage data={data} weekId={route.id} setModal={setModal} />
+            <WeekPage data={data} weekId={route.id} update={update} setModal={setModal} />
           )}
           {route.page === "schedule" && (
             <SchedulePage data={data} update={update} setModal={setModal} />
@@ -274,7 +329,62 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
           }}
         />
       )}
-      {toast && <div className="toast" role="status">{toast}</div>}
+      {accountMigration && (
+        <Modal title="Перенести локальные данные?" onClose={() => resolveAccountMigration("account")}>
+          <div className="migration-copy">
+            <p>
+              На этом устройстве есть данные гостя. Выберите, как поступить
+              после входа в аккаунт.
+            </p>
+            <div className="migration-summary">
+              <span><strong>{accountMigration.summary.directions}</strong> направлений</span>
+              <span><strong>{accountMigration.summary.months}</strong> месяцев</span>
+              <span><strong>{accountMigration.summary.weeks}</strong> недель</span>
+              <span><strong>{accountMigration.summary.completions}</strong> выполнений</span>
+            </div>
+            <button
+              className="migration-option migration-option-primary"
+              onClick={() => resolveAccountMigration("merge")}
+            >
+              <Icon name="cloud" size={20} />
+              <span>
+                <strong>Объединить данные</strong>
+                <small>Сохранить облачные данные и добавить локальные</small>
+              </span>
+              <Badge tone="green">Рекомендуется</Badge>
+            </button>
+            <button
+              className="migration-option"
+              onClick={() => resolveAccountMigration("guest")}
+            >
+              <Icon name="upload" size={20} />
+              <span>
+                <strong>Использовать локальные</strong>
+                <small>Заменить состояние аккаунта данными этого устройства</small>
+              </span>
+            </button>
+            <button
+              className="migration-option"
+              onClick={() => resolveAccountMigration("account")}
+            >
+              <Icon name="download" size={20} />
+              <span>
+                <strong>Использовать облачные</strong>
+                <small>Оставить локальные данные только в гостевом режиме</small>
+              </span>
+            </button>
+          </div>
+        </Modal>
+      )}
+      {toast && (
+        <div className="toast" role="status">
+          <Icon name="check" size={16} />
+          <span>{toast}</span>
+          {canUndo && (
+            <button onClick={undo}>Отменить</button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -497,7 +607,15 @@ function DaySummary({ day, data, onEdit }: { day: DayPlan; data: PlannerData; on
   );
 }
 
-function Today({ data, setModal }: { data: PlannerData; setModal: (m: ModalState) => void }) {
+function Today({
+  data,
+  update,
+  setModal,
+}: {
+  data: PlannerData;
+  update: PlannerUpdate;
+  setModal: (m: ModalState) => void;
+}) {
   const today = iso(new Date());
   const weekId = weekIdFor(new Date());
   const day = data.days.find((item) => item.date === today) ?? { date: today, segments: [], breaks: [] };
@@ -563,8 +681,13 @@ function Today({ data, setModal }: { data: PlannerData; setModal: (m: ModalState
           <div className="section-head"><h2>План недели</h2><span className="muted">{weekLabel(weekId)}</span></div>
           {week ? (
             <>
-              <PlanRows data={data} items={week.items} scope="week" planId={week.id} weekId={week.id} setModal={setModal} />
-              <Button variant="secondary" onClick={() => setModal({ kind: "fact", weekId })}>Добавить выполнение</Button>
+              <TodayPlan
+                data={data}
+                weekId={weekId}
+                update={update}
+                setModal={setModal}
+              />
+              <Button icon="plus" variant="secondary" onClick={() => setModal({ kind: "fact", weekId })}>Добавить другое выполнение</Button>
             </>
           ) : (
             <EmptyState icon="today" title="Неделя ещё не запланирована" text="Добавьте направления, чтобы отмечать выполнение сегодня." action="Запланировать неделю" onAction={() => setModal({ kind: "week-plan", weekId })} />
@@ -589,10 +712,12 @@ function periodStatus(id: string, type: "month" | "week") {
 function MonthPage({
   data,
   monthId,
+  update,
   setModal,
 }: {
   data: PlannerData;
   monthId: string;
+  update: PlannerUpdate;
   setModal: (m: ModalState) => void;
 }) {
   const month = data.months.find((item) => item.id === monthId);
@@ -638,6 +763,19 @@ function MonthPage({
           <EmptyState icon="plans" title="Месяц ещё не запланирован" text="Выберите активные направления и задайте плановые значения." action="Запланировать месяц" onAction={() => setModal({ kind: "month-plan", monthId })} />
         )}
       </section>
+      {month && (
+        <PeriodReview
+          data={data}
+          scope="month"
+          periodId={monthId}
+          items={month.items}
+          status={periodStatus(monthId, "month")}
+          update={update}
+          onPlanNext={() =>
+            setModal({ kind: "month-plan", monthId: iso(next).slice(0, 7) })
+          }
+        />
+      )}
       <section className="card extras-card">
         <div className="section-head"><h2>Дополнительные результаты</h2><Badge>{extras.length}</Badge></div>
         {extras.length ? (
@@ -659,10 +797,12 @@ function MonthPage({
 function WeekPage({
   data,
   weekId,
+  update,
   setModal,
 }: {
   data: PlannerData;
   weekId: string;
+  update: PlannerUpdate;
   setModal: (m: ModalState) => void;
 }) {
   const week = data.weeks.find((item) => item.id === weekId);
@@ -705,6 +845,23 @@ function WeekPage({
           <EmptyState icon="today" title="Неделя ещё не запланирована" text="Распределите месячные направления на эту неделю." action="Запланировать неделю" onAction={() => setModal({ kind: "week-plan", weekId })} />
         )}
       </section>
+      {week && (
+        <PeriodReview
+          data={data}
+          scope="week"
+          periodId={weekId}
+          weekId={weekId}
+          items={week.items}
+          status={periodStatus(weekId, "week")}
+          update={update}
+          onPlanNext={() =>
+            setModal({
+              kind: "week-plan",
+              weekId: iso(addDays(parseDate(weekId), 7)),
+            })
+          }
+        />
+      )}
       <ExtrasBlock data={data} weekId={weekId} setModal={setModal} />
     </>
   );
@@ -748,7 +905,7 @@ function ModalHost({
             : { kind: "week-plan", weekId: returnToPlan.id },
         )
       : close;
-    return <DirectionForm direction={modal.direction} close={directionClose} update={update} />;
+    return <DirectionForm direction={modal.direction} close={directionClose} update={update} setModal={setModal} />;
   }
   if (modal.kind === "activity") return <ActivityForm activity={modal.activity} close={close} update={update} />;
   if (modal.kind === "day") return <DayForm data={data} date={modal.date} close={close} update={update} />;
@@ -770,6 +927,31 @@ function ModalHost({
       : close;
     return <Details data={data} {...modal} close={nestedClose} />;
   }
+  if (modal.kind === "confirm") {
+    const cancel = () => modal.returnTo ? setModal(modal.returnTo) : close();
+    return (
+      <Modal title={modal.title} onClose={cancel}>
+        <div className="confirm-dialog-copy">
+          <span className={modal.tone === "danger" ? "danger" : ""}>
+            <Icon name="alert" size={22} />
+          </span>
+          <p>{modal.message}</p>
+        </div>
+        <div className="modal-actions">
+          <Button variant="secondary" onClick={cancel}>Отмена</Button>
+          <Button
+            variant={modal.tone === "danger" ? "danger" : "primary"}
+            onClick={() => {
+              modal.onConfirm();
+              close();
+            }}
+          >
+            {modal.confirmLabel}
+          </Button>
+        </div>
+      </Modal>
+    );
+  }
   return (
     <Modal title="Удалить данные?" onClose={close}>
       <p className="confirm-copy">Все данные будут удалены из облачного хранилища и локальной резервной копии.</p>
@@ -788,10 +970,12 @@ function DirectionForm({
   direction,
   close,
   update,
+  setModal,
 }: {
   direction?: Direction;
   close: () => void;
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
+  setModal: (m: ModalState) => void;
 }) {
   const normalizeUnit = (nextMetric: MetricType, nextUnit: string) => {
     if (nextMetric === "checkbox" || nextMetric === "percent") return "";
@@ -841,18 +1025,44 @@ function DirectionForm({
   };
   const remove = () => {
     if (!direction) return;
-    if (!window.confirm(
-      "Удалить направление? Оно также будет удалено из всех планов вместе с записями выполнения.",
-    )) return;
-
+    if (direction.deletedAt) {
+      setModal({
+        kind: "confirm",
+        title: "Удалить направление навсегда?",
+        message:
+          "Направление, его планы и записи выполнения будут удалены без возможности восстановления.",
+        confirmLabel: "Удалить навсегда",
+        tone: "danger",
+        returnTo: { kind: "direction", direction },
+        onConfirm: () => {
+          update(
+            (current) => deleteDirection(current, direction.id),
+            "Направление удалено навсегда",
+          );
+          if (routeFromPathname(window.location.pathname).page === "direction") {
+            navigate({ page: "directions" });
+          }
+        },
+      });
+      return;
+    }
     update(
-      (current) => deleteDirection(current, direction.id),
-      "Направление удалено",
+      (current) =>
+        moveDirectionToTrash(current, direction.id, iso(new Date())),
+      "Направление перемещено в корзину",
     );
     close();
     if (routeFromPathname(window.location.pathname).page === "direction") {
       navigate({ page: "directions" });
     }
+  };
+  const restore = () => {
+    if (!direction) return;
+    update(
+      (current) => restoreDirection(current, direction.id),
+      "Направление восстановлено",
+    );
+    close();
   };
   return (
     <Modal title={direction ? "Изменить направление" : "Новое направление"} onClose={close}>
@@ -869,9 +1079,22 @@ function DirectionForm({
         {metric === "count" && <label className="field"><span>Единица</span><input value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
         {metric === "duration" && <label className="field"><span>Единица</span><select value={savedUnit} onChange={(e) => setUnit(e.target.value)}><option value="ч.">ч.</option><option value="мин.">мин.</option></select></label>}
         <label className="field"><span>Цвет</span><input type="color" value={color} onChange={(e) => setColor(e.target.value)} /></label>
-        {direction && <label className="field"><span>Доступность</span><select value={availability} onChange={(e) => setAvailability(e.target.value as Direction["availability"])}><option value="active">Активно</option><option value="paused">Приостановлено</option><option value="archived">Архив</option></select></label>}
+        {direction && !direction.deletedAt && <label className="field"><span>Доступность</span><select value={availability} onChange={(e) => setAvailability(e.target.value as Direction["availability"])}><option value="active">Активно — доступно для новых планов</option><option value="paused">Приостановлено — временно не предлагать</option><option value="archived">Архив — сохранить историю</option></select></label>}
+        {direction?.deletedAt && (
+          <p className="inline-message inline-message-error field-full">
+            <Icon name="trash" size={16} />
+            Направление находится в корзине. История и планы пока сохранены.
+          </p>
+        )}
         <div className="modal-actions field-full">
-          {direction && <Button variant="danger" type="button" onClick={remove}>Удалить</Button>}
+          {direction?.deletedAt ? (
+            <>
+              <Button variant="danger" type="button" onClick={remove}>Удалить навсегда</Button>
+              <Button icon="upload" variant="secondary" type="button" onClick={restore}>Восстановить</Button>
+            </>
+          ) : direction ? (
+            <Button icon="trash" variant="danger" type="button" onClick={remove}>В корзину</Button>
+          ) : null}
           <Button variant="secondary" type="button" onClick={close}>Отмена</Button>
           <Button type="submit">Сохранить</Button>
         </div>
@@ -1102,13 +1325,16 @@ function ExtraForm({
   const [date, setDate] = useState(weekId);
   return (
     <Modal title="Дополнительный результат" onClose={close}>
+      <p className="form-intro">
+        Запишите важный результат, который не входил в недельный план.
+      </p>
       <form className="form-grid" onSubmit={(event) => {
         event.preventDefault();
         if (!title.trim()) return;
         update((current) => ({ ...current, extraResults: [...current.extraResults, { id: uid("result"), weekId, title: title.trim(), metric, unit: metric === "checkbox" ? "" : unit.trim(), value: metric === "checkbox" ? 1 : value, date }] }), "Результат добавлен");
         close();
       }}>
-        <label className="field field-full"><span>Название</span><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} required /></label>
+        <label className="field field-full"><span>Название результата</span><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} required /></label>
         <label className="field"><span>Метрика</span><select value={metric} onChange={(e) => setMetric(e.target.value as MetricType)}>{Object.entries(metricName).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         {metric !== "checkbox" && <label className="field"><span>Единица</span><input value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
         {metric !== "checkbox" && <label className="field"><span>Значение</span><input type="number" min="0" step="0.1" value={value} onChange={(e) => setValue(Number(e.target.value))} /></label>}
@@ -1134,12 +1360,23 @@ function PlanForm({
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
   setModal: (m: ModalState) => void;
 }) {
-  const existing = scope === "month" ? data.months.find((item) => item.id === id) : data.weeks.find((item) => item.id === id);
+  const existing = scope === "month"
+    ? data.months.find((item) => item.id === id)
+    : data.weeks.find((item) => item.id === id);
   const monthId = scope === "month" ? id : monthIdForWeek(id);
   const month = data.months.find((item) => item.id === monthId);
   const candidates = scope === "month"
-    ? data.directions.filter((item) => item.availability === "active")
-    : data.directions.filter((direction) => month?.items.some((item) => item.directionId === direction.id && !item.paused) && direction.availability === "active");
+    ? data.directions.filter(
+        (item) => item.availability === "active" && !item.deletedAt,
+      )
+    : data.directions.filter(
+        (direction) =>
+          !direction.deletedAt &&
+          month?.items.some(
+            (item) => item.directionId === direction.id && !item.paused,
+          ) &&
+          direction.availability === "active",
+      );
   const metricForDirection = (directionId: string) => {
     const direction = data.directions.find((item) => item.id === directionId);
     const monthItem = scope === "week"
@@ -1150,15 +1387,66 @@ function PlanForm({
       unit: monthItem?.unit ?? direction?.unit ?? "",
     };
   };
+  const previousId =
+    scope === "month"
+      ? iso(
+          new Date(
+            parseDate(`${id}-01`).getFullYear(),
+            parseDate(`${id}-01`).getMonth() - 1,
+            1,
+          ),
+        ).slice(0, 7)
+      : iso(addDays(parseDate(id), -7));
+  const previousPlan =
+    scope === "month"
+      ? data.months.find((item) => item.id === previousId)
+      : data.weeks.find((item) => item.id === previousId);
+  const suggestedTarget = (directionId: string) => {
+    const metric = metricForDirection(directionId).metric;
+    if (metric === "checkbox") return 1;
+    const previous = previousPlan?.items.find(
+      (item) => item.directionId === directionId,
+    );
+    if (previous) return previous.target;
+    if (scope === "week") {
+      const monthItem = month?.items.find(
+        (item) => item.directionId === directionId,
+      );
+      if (monthItem) return Math.max(1, Number((monthItem.target / 4).toFixed(1)));
+    }
+    return metric === "percent" ? 100 : 1;
+  };
   const [rows, setRows] = useState<{ directionId: string; target: number }[]>(
-    existing?.items.map((item) => ({ directionId: item.directionId, target: item.target })) ?? candidates.slice(0, scope === "month" ? 4 : 3).map((item) => ({ directionId: item.id, target: 1 })),
+    existing?.items.map((item) => ({
+      directionId: item.directionId,
+      target: item.target,
+    })) ?? [],
   );
+  const [step, setStep] = useState<"directions" | "targets" | "review">(
+    existing ? "targets" : "directions",
+  );
+  const toggleDirection = (directionId: string) => {
+    setRows((current) =>
+      current.some((item) => item.directionId === directionId)
+        ? current.filter((item) => item.directionId !== directionId)
+        : [
+            ...current,
+            { directionId, target: suggestedTarget(directionId) },
+          ],
+    );
+  };
+  const copyPrevious = () => {
+    if (!previousPlan) return;
+    const next = previousPlan.items.flatMap((item) =>
+      candidates.some((candidate) => candidate.id === item.directionId)
+        ? [{ directionId: item.directionId, target: item.target }]
+        : [],
+    );
+    setRows(next);
+  };
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!rows.length || rows.some((row) => row.target < 0 || !row.directionId)) return;
-    if (existing && periodStatus(id, scope) !== (scope === "month" ? "Будущий" : "Будущая")) {
-      if (!window.confirm("Изменить план? Статистика периода будет пересчитана")) return;
-    }
     const oldItems = existing?.items ?? [];
     const items = rows.map((row) => {
       const old = oldItems.find((item) => item.directionId === row.directionId);
@@ -1227,38 +1515,185 @@ function PlanForm({
         />
       ) : (
         <form onSubmit={submit}>
-          <div className="plan-editor">
-            {rows.map((row, index) => {
-              const direction = data.directions.find((item) => item.id === row.directionId);
-              const rowMetric = metricForDirection(row.directionId);
-              return (
-                <div key={`${row.directionId}-${index}`}>
-                  <select value={row.directionId} onChange={(e) => {
-                    const nextMetric = metricForDirection(e.target.value).metric;
-                    setRows((items) => items.map((item, i) => i === index
-                      ? { ...item, directionId: e.target.value, target: nextMetric === "checkbox" ? 1 : item.target }
-                      : item));
-                  }}>
-                    {candidates.filter((item) => item.id === row.directionId || !rows.some((rowItem) => rowItem.directionId === item.id)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </select>
-                  <span className="metric-label">{direction && rowMetric.metric ? `${metricName[rowMetric.metric]}${rowMetric.unit ? ` · ${rowMetric.unit}` : ""}` : ""}</span>
-                  {rowMetric.metric === "checkbox" ? (
-                    <span className="checkbox-plan-target">Отметка</span>
-                  ) : (
-                    <input type="number" min="0" step="0.1" value={row.target} onChange={(e) => setRows((items) => items.map((item, i) => i === index ? { ...item, target: Number(e.target.value) } : item))} />
-                  )}
-                  <IconButton type="button" icon="x" label="Удалить направление" onClick={() => setRows((items) => items.filter((_, i) => i !== index))} />
-                </div>
-              );
-            })}
+          <div className="plan-steps" aria-label="Этапы планирования">
+            {[
+              ["directions", "1", "Направления"],
+              ["targets", "2", "Цели"],
+              ["review", "3", "Проверка"],
+            ].map(([value, number, label]) => (
+              <span
+                key={value}
+                className={
+                  step === value ||
+                  (value === "directions" && step !== "directions") ||
+                  (value === "targets" && step === "review")
+                    ? "active"
+                    : ""
+                }
+              >
+                <i>{number}</i>{label}
+              </span>
+            ))}
           </div>
-          {candidates.some((candidate) => !rows.some((row) => row.directionId === candidate.id)) && (
-            <button type="button" className="add-line" onClick={() => {
-              const candidate = candidates.find((item) => !rows.some((row) => row.directionId === item.id));
-              if (candidate) setRows((items) => [...items, { directionId: candidate.id, target: 1 }]);
-            }}><Icon name="plus" size={15} />Добавить направление</button>
+          {step === "directions" && (
+            <>
+              <div className="plan-wizard-head">
+                <div>
+                  <h3>Что включить в план?</h3>
+                  <p>Выберите только те направления, которыми хотите заниматься в этом периоде.</p>
+                </div>
+                {previousPlan && (
+                  <Button type="button" size="small" variant="secondary" icon="copy" onClick={copyPrevious}>
+                    Скопировать предыдущий
+                  </Button>
+                )}
+              </div>
+              <div className="direction-picker">
+                {candidates.map((direction) => {
+                  const selected = rows.some(
+                    (item) => item.directionId === direction.id,
+                  );
+                  const previous = previousPlan?.items.find(
+                    (item) => item.directionId === direction.id,
+                  );
+                  return (
+                    <button
+                      type="button"
+                      key={direction.id}
+                      className={selected ? "selected" : ""}
+                      onClick={() => toggleDirection(direction.id)}
+                      aria-pressed={selected}
+                    >
+                      <span
+                        className="direction-dot"
+                        style={{ background: direction.color }}
+                      />
+                      <span>
+                        <strong>{direction.name}</strong>
+                        <small>
+                          {metricName[direction.metric]}
+                          {direction.unit && ` · ${direction.unit}`}
+                          {previous && ` · ранее ${formatValue(previous.target, previous.metric, previous.unit)}`}
+                        </small>
+                      </span>
+                      <i>{selected && <Icon name="check" size={14} />}</i>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
-          <div className="modal-actions"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button disabled={!rows.length}>Сохранить план</Button></div>
+          {step === "targets" && (
+            <>
+              <div className="plan-wizard-head">
+                <div>
+                  <h3>Задайте ориентиры</h3>
+                  <p>Предложения основаны на предыдущем периоде и плане месяца.</p>
+                </div>
+              </div>
+              <div className="plan-editor">
+                {rows.map((row, index) => {
+                  const direction = data.directions.find(
+                    (item) => item.id === row.directionId,
+                  );
+                  const rowMetric = metricForDirection(row.directionId);
+                  return (
+                    <div key={`${row.directionId}-${index}`}>
+                      <div className="plan-direction-copy">
+                        <span
+                          className="direction-dot"
+                          style={{ background: direction?.color }}
+                        />
+                        <strong>{direction?.name}</strong>
+                      </div>
+                      <span className="metric-label">
+                        {rowMetric.metric
+                          ? `${metricName[rowMetric.metric]}${rowMetric.unit ? ` · ${rowMetric.unit}` : ""}`
+                          : ""}
+                      </span>
+                      {rowMetric.metric === "checkbox" ? (
+                        <span className="checkbox-plan-target">Отметка</span>
+                      ) : (
+                        <input
+                          aria-label={`План: ${direction?.name}`}
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={row.target}
+                          onChange={(event) =>
+                            setRows((items) =>
+                              items.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? { ...item, target: Number(event.target.value) }
+                                  : item,
+                              ),
+                            )
+                          }
+                        />
+                      )}
+                      <IconButton type="button" icon="x" label="Убрать направление" onClick={() => setRows((items) => items.filter((_, itemIndex) => itemIndex !== index))} />
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          {step === "review" && (
+            <div className="plan-review">
+              <div className="plan-wizard-head">
+                <div>
+                  <h3>Проверьте план</h3>
+                  <p>{rows.length} направлений. После сохранения значения можно будет изменить.</p>
+                </div>
+              </div>
+              {rows.map((row) => {
+                const direction = data.directions.find(
+                  (item) => item.id === row.directionId,
+                );
+                const metric = metricForDirection(row.directionId);
+                const previous = existing?.items.find(
+                  (item) => item.directionId === row.directionId,
+                );
+                return (
+                  <div key={row.directionId}>
+                    <span className="direction-dot" style={{ background: direction?.color }} />
+                    <strong>{direction?.name}</strong>
+                    <span>
+                      {previous && previous.target !== row.target && (
+                        <del>{formatValue(previous.target, previous.metric, previous.unit)}</del>
+                      )}
+                      {formatValue(row.target, metric.metric ?? "count", metric.unit)}
+                    </span>
+                  </div>
+                );
+              })}
+              {existing && periodStatus(id, scope) !== (scope === "month" ? "Будущий" : "Будущая") && (
+                <p className="plan-change-note">
+                  <Icon name="alert" size={16} />
+                  Прогресс периода будет пересчитан по новым значениям. Изменение можно отменить после сохранения.
+                </p>
+              )}
+            </div>
+          )}
+          <div className="modal-actions">
+            {step === "directions" ? (
+              <Button variant="secondary" type="button" onClick={close}>Отмена</Button>
+            ) : (
+              <Button variant="secondary" type="button" onClick={() => setStep(step === "review" ? "targets" : "directions")}>Назад</Button>
+            )}
+            {step === "review" ? (
+              <Button disabled={!rows.length}>Сохранить план</Button>
+            ) : (
+              <Button
+                type="button"
+                disabled={!rows.length}
+                trailingIcon="arrow-right"
+                onClick={() => setStep(step === "directions" ? "targets" : "review")}
+              >
+                Продолжить
+              </Button>
+            )}
+          </div>
         </form>
       )}
     </Modal>
@@ -1326,7 +1761,6 @@ function EditItemForm({
     <Modal title={direction.name} onClose={close}>
       <form onSubmit={(event) => {
         event.preventDefault();
-        if (periodStatus(planId, scope) !== (scope === "month" ? "Будущий" : "Будущая") && !window.confirm("Изменить план? Статистика периода будет пересчитана")) return;
         update((current) => {
           const currentPlan = findPlan(current, scope, planId)!;
           return replaceItem(current, currentPlan.items.map((entry) => entry.id === itemId ? {
@@ -1346,6 +1780,12 @@ function EditItemForm({
         ) : (
           <label className="field"><span>План, {planMetric.metric === "percent" ? "%" : planMetric.unit || metricName[planMetric.metric].toLowerCase()}</span><input type="number" min="0" step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
         )}
+        {periodStatus(planId, scope) !== (scope === "month" ? "Будущий" : "Будущая") && (
+          <p className="plan-change-note">
+            <Icon name="alert" size={16} />
+            Прогресс будет пересчитан. После сохранения изменение можно отменить.
+          </p>
+        )}
         <div className="action-list">
           <button type="button" onClick={() => setModal({ kind: "pause", scope, planId, itemId, returnToEdit: true })}>{item.paused ? "Изменить приостановку" : scope === "month" ? "Приостановить до конца месяца" : "Приостановить на неделю"}<Icon name="arrow-right" size={15} /></button>
           {item.paused && <button type="button" onClick={() => {
@@ -1357,12 +1797,21 @@ function EditItemForm({
           }}>Возобновить<Icon name="arrow-right" size={15} /></button>}
           <button type="button" onClick={() => setModal({ kind: "details", scope, planId, itemId, returnToEdit: true })}>Подробности<Icon name="arrow-right" size={15} /></button>
           {scope === "week" && <button type="button" className="danger-link" onClick={() => {
-            if (!window.confirm("Удалить направление из недельного плана?")) return;
-            update((current) => {
-              const currentPlan = findPlan(current, scope, planId)!;
-              return replaceItem(current, currentPlan.items.filter((entry) => entry.id !== itemId));
-            }, "Направление удалено из плана");
-            close();
+            setModal({
+              kind: "confirm",
+              title: "Убрать направление из недели?",
+              message:
+                "Месячный план и история направления останутся без изменений.",
+              confirmLabel: "Убрать из недели",
+              tone: "danger",
+              returnTo: { kind: "edit-item", scope, planId, itemId },
+              onConfirm: () => {
+                update((current) => {
+                  const currentPlan = findPlan(current, scope, planId)!;
+                  return replaceItem(current, currentPlan.items.filter((entry) => entry.id !== itemId));
+                }, "Направление удалено из недельного плана");
+              },
+            });
           }}>Удалить из плана<Icon name="trash" size={15} /></button>}
         </div>
         <div className="modal-actions"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button>Сохранить</Button></div>

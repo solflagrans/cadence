@@ -36,3 +36,27 @@ export const deleteDirection = (
     (completion) => completion.directionId !== directionId,
   ),
 });
+
+export const moveDirectionToTrash = (
+  state: PlannerData,
+  directionId: string,
+  deletedAt: string,
+): PlannerData => ({
+  ...state,
+  directions: state.directions.map((direction) =>
+    direction.id === directionId ? { ...direction, deletedAt } : direction,
+  ),
+});
+
+export const restoreDirection = (
+  state: PlannerData,
+  directionId: string,
+): PlannerData => ({
+  ...state,
+  directions: state.directions.map((direction) => {
+    if (direction.id !== directionId) return direction;
+    const restored = { ...direction };
+    delete restored.deletedAt;
+    return restored;
+  }),
+});

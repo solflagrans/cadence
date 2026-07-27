@@ -16,6 +16,7 @@ export type Direction = {
   unit: string;
   color: string;
   availability: "active" | "paused" | "archived";
+  deletedAt?: string;
   metricHistory: { metric: MetricType; unit: string; since: string }[];
 };
 
@@ -76,6 +77,14 @@ export type WeekPlan = {
   items: PlanItem[];
 };
 
+export type PeriodReview = {
+  id: string;
+  scope: "month" | "week";
+  periodId: string;
+  note: string;
+  updatedAt: string;
+};
+
 export type AppSettings = {
   timezone: string;
   weekStartsOn: "monday";
@@ -97,5 +106,6 @@ export type PlannerData = {
   weeks: WeekPlan[];
   completions: Completion[];
   extraResults: ExtraResult[];
+  reviews: PeriodReview[];
   settings: AppSettings;
 };

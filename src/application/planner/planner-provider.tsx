@@ -12,15 +12,32 @@ import type { PlannerData } from "@/src/domain/planner/model/types";
 import type { AccountIdentity } from "@/src/domain/identity/account";
 import {
   guestStorageScope,
+  StateConflictError,
   type StorageScope,
 } from "@/src/application/sync/state-repository";
+import {
+  hasPlannerContent,
+  mergePlannerData,
+  plannerContentSummary,
+} from "@/src/domain/planner/lib/state";
 import { storageRepository } from "@/src/infrastructure/storage/hybrid-state-repository";
 import {
   signOutAccount,
   useAccountSession,
 } from "@/src/infrastructure/auth/neon-auth-client";
 
-export type SaveStatus = "saving" | "saved" | "error";
+export type SaveStatus = "saving" | "saved" | "error" | "conflict";
+
+export type AccountMigration = {
+  guest: PlannerData;
+  account: PlannerData;
+  summary: ReturnType<typeof plannerContentSummary>;
+};
+
+export type SaveIssue =
+  | { kind: "network" }
+  | { kind: "conflict"; remoteRevision: number }
+  | null;
 
 export type PlannerUpdate = (
   recipe: (current: PlannerData) => PlannerData,
@@ -34,6 +51,15 @@ type PlannerContextValue = {
   account: AccountIdentity | null;
   localOnly: boolean;
   toast: string;
+  canUndo: boolean;
+  undo: () => void;
+  saveIssue: SaveIssue;
+  retrySave: () => Promise<void>;
+  resolveConflict: (choice: "remote" | "local") => Promise<void>;
+  accountMigration: AccountMigration | null;
+  resolveAccountMigration: (
+    choice: "merge" | "guest" | "account",
+  ) => void;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
 };
@@ -47,6 +73,10 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   );
   const [toast, setToast] = useState("");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
+  const [saveIssue, setSaveIssue] = useState<SaveIssue>(null);
+  const [undoState, setUndoState] = useState<PlannerData | null>(null);
+  const [accountMigration, setAccountMigration] =
+    useState<AccountMigration | null>(null);
   const hydrated = useRef(false);
   const changedDuringLoad = useRef(false);
   const skipNextSave = useRef(false);
@@ -72,11 +102,29 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     hydrated.current = false;
     changedDuringLoad.current = false;
 
+    const guestSnapshot = storageRepository.getCachedState(guestStorageScope);
     void storageRepository.load(scope).then((result) => {
       if (cancelled || revision !== loadRevision.current) return;
 
-      hydrated.current = true;
       setSaveStatus("saved");
+      setSaveIssue(null);
+
+      if (
+        scope.kind === "account" &&
+        hasPlannerContent(guestSnapshot) &&
+        !window.localStorage.getItem(`cadence-account-migration:${scope.userId}`)
+      ) {
+        skipNextSave.current = true;
+        setData(result.data);
+        setAccountMigration({
+          guest: guestSnapshot,
+          account: result.data,
+          summary: plannerContentSummary(guestSnapshot),
+        });
+        return;
+      }
+
+      hydrated.current = true;
 
       if (changedDuringLoad.current) {
         setData((current) => ({ ...current }));
@@ -116,10 +164,23 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
 
       void operation.then(
         () => {
-          if (revision === saveRevision.current) setSaveStatus("saved");
+          if (revision === saveRevision.current) {
+            setSaveStatus("saved");
+            setSaveIssue(null);
+          }
         },
-        () => {
-          if (revision === saveRevision.current) setSaveStatus("error");
+        (error) => {
+          if (revision !== saveRevision.current) return;
+          if (error instanceof StateConflictError) {
+            setSaveStatus("conflict");
+            setSaveIssue({
+              kind: "conflict",
+              remoteRevision: error.remoteRevision,
+            });
+          } else {
+            setSaveStatus("error");
+            setSaveIssue({ kind: "network" });
+          }
         },
       );
     }, 800);
@@ -129,7 +190,10 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 2400);
+    const timer = window.setTimeout(() => {
+      setToast("");
+      setUndoState(null);
+    }, 5000);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
@@ -140,8 +204,90 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
 
   const update: PlannerContextValue["update"] = (recipe, message) => {
     if (!hydrated.current) changedDuringLoad.current = true;
-    setData((current) => recipe(current));
+    setData((current) => {
+      setUndoState(current);
+      return recipe(current);
+    });
     if (message) setToast(message);
+  };
+
+  const undo = () => {
+    if (!undoState) return;
+    setData(undoState);
+    setUndoState(null);
+    setToast("Изменение отменено");
+  };
+
+  const retrySave = async () => {
+    setSaveStatus("saving");
+    try {
+      await storageRepository.save(activeStorageScope.current, data);
+      setSaveStatus("saved");
+      setSaveIssue(null);
+    } catch (error) {
+      if (error instanceof StateConflictError) {
+        setSaveStatus("conflict");
+        setSaveIssue({
+          kind: "conflict",
+          remoteRevision: error.remoteRevision,
+        });
+      } else {
+        setSaveStatus("error");
+        setSaveIssue({ kind: "network" });
+      }
+    }
+  };
+
+  const resolveConflict = async (choice: "remote" | "local") => {
+    const issue = saveIssue;
+    if (!issue || issue.kind !== "conflict") return;
+    setSaveStatus("saving");
+    try {
+      if (choice === "remote") {
+        const result = await storageRepository.load(activeStorageScope.current);
+        if (!result.remoteAvailable) throw new Error("Remote unavailable");
+        skipNextSave.current = true;
+        setData(result.data);
+        setToast("Загружена облачная версия");
+      } else {
+        await storageRepository.save(activeStorageScope.current, data, {
+          revision: issue.remoteRevision,
+        });
+        setToast("Текущая версия сохранена в облаке");
+      }
+      setSaveStatus("saved");
+      setSaveIssue(null);
+    } catch {
+      setSaveStatus("error");
+      setSaveIssue({ kind: "network" });
+    }
+  };
+
+  const resolveAccountMigration = (
+    choice: "merge" | "guest" | "account",
+  ) => {
+    if (!accountMigration || activeStorageScope.current.kind !== "account") {
+      return;
+    }
+    const next =
+      choice === "merge"
+        ? mergePlannerData(accountMigration.account, accountMigration.guest)
+        : choice === "guest"
+          ? accountMigration.guest
+          : accountMigration.account;
+    window.localStorage.setItem(
+      `cadence-account-migration:${activeStorageScope.current.userId}`,
+      choice,
+    );
+    setAccountMigration(null);
+    hydrated.current = true;
+    skipNextSave.current = false;
+    setData(next);
+    setToast(
+      choice === "account"
+        ? "Открыты данные аккаунта"
+        : "Локальные данные перенесены в аккаунт",
+    );
   };
 
   const account =
@@ -166,6 +312,13 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         account,
         localOnly: !account,
         toast,
+        canUndo: Boolean(undoState),
+        undo,
+        saveIssue,
+        retrySave,
+        resolveConflict,
+        accountMigration,
+        resolveAccountMigration,
         signOut,
         refreshSession: accountSession.refresh,
       }}

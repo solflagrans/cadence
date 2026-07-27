@@ -37,4 +37,13 @@ export type ModalState =
       returnToEdit?: boolean;
     }
   | { kind: "confirm-reset" }
+  | {
+      kind: "confirm";
+      title: string;
+      message: string;
+      confirmLabel: string;
+      tone?: "primary" | "danger";
+      onConfirm: () => void;
+      returnTo?: Exclude<ModalState, null>;
+    }
   | null;

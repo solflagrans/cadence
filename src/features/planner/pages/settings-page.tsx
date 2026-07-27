@@ -116,12 +116,10 @@ export function SettingsPage({
               <option>Asia/Tbilisi</option>
             </select>
           </label>
-          <label className="setting-row">
+          <div className="setting-row">
             <div><strong>Первый день недели</strong></div>
-            <select defaultValue="monday">
-              <option value="monday">Понедельник</option>
-            </select>
-          </label>
+            <span className="setting-static">Понедельник</span>
+          </div>
           <label className="setting-row">
             <div><strong>Формат времени</strong></div>
             <select

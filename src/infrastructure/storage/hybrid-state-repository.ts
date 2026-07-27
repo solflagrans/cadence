@@ -1,11 +1,12 @@
 import { createInitialData } from "@/src/domain/planner/model/defaults";
 import type { PlannerData } from "@/src/domain/planner/model/types";
-import type {
-  StateRepository,
-  StorageLoadResult,
-  StorageScope,
+import {
+  StateConflictError,
+  type StateRepository,
+  type StorageLoadResult,
+  type StorageScope,
 } from "@/src/application/sync/state-repository";
-import { ApiStateGateway } from "./api-state-gateway";
+import { ApiStateGateway, StateGatewayError } from "./api-state-gateway";
 import { LocalStateCache } from "./local-state-cache";
 
 export class HybridStateRepository implements StateRepository {
@@ -46,13 +47,28 @@ export class HybridStateRepository implements StateRepository {
     this.cacheStore.save(scope, data);
   }
 
-  async save(scope: StorageScope, data: PlannerData): Promise<void> {
+  async save(
+    scope: StorageScope,
+    data: PlannerData,
+    options?: { revision?: number },
+  ): Promise<void> {
     if (scope.kind === "guest") return;
-    const result = await this.remote.save(
-      data,
-      this.cacheStore.loadRevision(scope),
-    );
-    this.cacheStore.saveRevision(scope, result.revision);
+    try {
+      const result = await this.remote.save(
+        data,
+        options?.revision ?? this.cacheStore.loadRevision(scope),
+      );
+      this.cacheStore.saveRevision(scope, result.revision);
+    } catch (error) {
+      if (
+        error instanceof StateGatewayError &&
+        error.status === 409 &&
+        typeof error.remoteRevision === "number"
+      ) {
+        throw new StateConflictError(error.remoteRevision);
+      }
+      throw error;
+    }
   }
 }
 

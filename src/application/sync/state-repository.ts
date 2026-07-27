@@ -12,9 +12,20 @@ export type StorageLoadResult = {
   remoteAvailable: boolean;
 };
 
+export class StateConflictError extends Error {
+  constructor(readonly remoteRevision: number) {
+    super("Remote state has a newer revision");
+    this.name = "StateConflictError";
+  }
+}
+
 export interface StateRepository {
   getCachedState(scope: StorageScope): PlannerData;
   load(scope: StorageScope): Promise<StorageLoadResult>;
   cache(scope: StorageScope, data: PlannerData): void;
-  save(scope: StorageScope, data: PlannerData): Promise<void>;
+  save(
+    scope: StorageScope,
+    data: PlannerData,
+    options?: { revision?: number },
+  ): Promise<void>;
 }
