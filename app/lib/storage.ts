@@ -3,33 +3,128 @@ import { createInitialData } from "./data";
 
 const STORAGE_KEY = "cadence-planner-v2";
 const LEGACY_STORAGE_KEYS = ["cadence-planner-v1", "sreda-planner-v1"];
+const STATE_API_PATH = "/api/state";
 
-export const plannerStorage = {
-  load(): PlannerData {
-    if (typeof window === "undefined") return createInitialData();
+export type StorageLoadResult = {
+  data: PlannerData;
+  source: "remote" | "local";
+  remoteAvailable: boolean;
+};
+
+export interface StorageRepository {
+  getCachedState(): PlannerData;
+  load(): Promise<StorageLoadResult>;
+  cache(data: PlannerData): void;
+  save(data: PlannerData): Promise<void>;
+}
+
+export const isPlannerData = (value: unknown): value is PlannerData => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<PlannerData>;
+  return (
+    candidate.version === 2 &&
+    Array.isArray(candidate.activityTypes) &&
+    Array.isArray(candidate.directions) &&
+    Array.isArray(candidate.days) &&
+    Array.isArray(candidate.months) &&
+    Array.isArray(candidate.weeks) &&
+    Array.isArray(candidate.completions) &&
+    Array.isArray(candidate.extraResults) &&
+    Boolean(candidate.settings && typeof candidate.settings === "object")
+  );
+};
+
+class LocalBackup {
+  load(): PlannerData | null {
+    if (typeof window === "undefined") return null;
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return createInitialData();
-      const parsed = JSON.parse(raw) as PlannerData;
-      return parsed.version === 2 ? parsed : createInitialData();
+      if (!raw) return null;
+      const parsed: unknown = JSON.parse(raw);
+      return isPlannerData(parsed) ? parsed : null;
     } catch {
-      return createInitialData();
+      return null;
     }
-  },
-  save(data: PlannerData) {
+  }
+
+  save(data: PlannerData): void {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
-  },
-  reset() {
-    window.localStorage.removeItem(STORAGE_KEY);
-    LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
-  },
-  export(data: PlannerData) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `planner-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-  },
+  }
+}
+
+type ApiStateResponse = { data: PlannerData; updatedAt: string };
+
+const isApiStateResponse = (value: unknown): value is ApiStateResponse => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { data?: unknown; updatedAt?: unknown };
+  return isPlannerData(candidate.data) && typeof candidate.updatedAt === "string";
 };
+
+class CloudflareStorageRepository implements StorageRepository {
+  constructor(
+    private readonly backup: LocalBackup,
+    private readonly apiPath = STATE_API_PATH,
+  ) {}
+
+  getCachedState(): PlannerData {
+    return this.backup.load() ?? createInitialData();
+  }
+
+  async load(): Promise<StorageLoadResult> {
+    const cached = this.getCachedState();
+
+    try {
+      const response = await fetch(this.apiPath, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+
+      if (response.status === 404) {
+        return { data: cached, source: "local", remoteAvailable: true };
+      }
+      if (!response.ok) {
+        throw new Error(`State request failed with status ${response.status}`);
+      }
+
+      const payload: unknown = await response.json();
+      if (!isApiStateResponse(payload)) {
+        throw new Error("State response has an invalid format");
+      }
+
+      this.backup.save(payload.data);
+      return { data: payload.data, source: "remote", remoteAvailable: true };
+    } catch {
+      return { data: cached, source: "local", remoteAvailable: false };
+    }
+  }
+
+  cache(data: PlannerData): void {
+    this.backup.save(data);
+  }
+
+  async save(data: PlannerData): Promise<void> {
+    const response = await fetch(this.apiPath, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`State save failed with status ${response.status}`);
+    }
+  }
+}
+
+export const storageRepository: StorageRepository =
+  new CloudflareStorageRepository(new LocalBackup());
+
+export function downloadPlannerBackup(data: PlannerData): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `cadence-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}

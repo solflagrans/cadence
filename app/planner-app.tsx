@@ -4,7 +4,6 @@ import {
   type FormEvent,
   type ReactNode,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -21,6 +20,7 @@ import type {
 } from "./lib/types";
 import {
   addDays,
+  createInitialData,
   dateLabel,
   formatValue,
   iso,
@@ -35,7 +35,13 @@ import {
   weekIdFor,
   weekLabel,
 } from "./lib/data";
-import { plannerStorage } from "./lib/storage";
+import {
+  downloadPlannerBackup,
+  isPlannerData,
+  storageRepository,
+} from "./lib/storage";
+
+type SaveStatus = "saving" | "saved" | "error";
 
 const NAV: { page: Route["page"]; label: string; short: string }[] = [
   { page: "overview", label: "Обзор", short: "Обзор" },
@@ -140,6 +146,21 @@ function Badge({
   tone?: "neutral" | "green" | "blue" | "amber" | "red";
 }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
+}
+
+function SaveIndicator({ status }: { status: SaveStatus }) {
+  const label = {
+    saving: "Сохранение…",
+    saved: "Сохранено",
+    error: "Ошибка сохранения",
+  }[status];
+
+  return (
+    <span className={`save-indicator save-indicator-${status}`} role="status" aria-live="polite">
+      <span aria-hidden="true" />
+      {label}
+    </span>
+  );
 }
 
 function SegmentedBar({
@@ -287,11 +308,16 @@ function PlanRows({
 }
 
 export default function PlannerApp() {
-  const [data, setData] = useState<PlannerData>(() => plannerStorage.load());
+  const [data, setData] = useState<PlannerData>(() => storageRepository.getCachedState());
   const [route, setRoute] = useState<Route>({ page: "overview" });
   const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState("");
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const hydrated = useRef(false);
+  const changedDuringLoad = useRef(false);
+  const skipNextSave = useRef(false);
+  const saveRevision = useRef(0);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     const sync = () => setRoute(routeFromHash());
@@ -301,11 +327,56 @@ export default function PlannerApp() {
   }, []);
 
   useEffect(() => {
-    if (!hydrated.current) {
+    let cancelled = false;
+
+    void storageRepository.load().then((result) => {
+      if (cancelled) return;
+
       hydrated.current = true;
+      setSaveStatus(result.remoteAvailable ? "saved" : "error");
+
+      if (changedDuringLoad.current) {
+        setData((current) => ({ ...current }));
+      } else {
+        skipNextSave.current = true;
+        setData(result.data);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
       return;
     }
-    plannerStorage.save(data);
+
+    const revision = ++saveRevision.current;
+    const snapshot = data;
+    storageRepository.cache(snapshot);
+    setSaveStatus("saving");
+
+    const timer = window.setTimeout(() => {
+      const operation = saveQueue.current
+        .catch(() => undefined)
+        .then(() => storageRepository.save(snapshot));
+      saveQueue.current = operation;
+
+      void operation.then(
+        () => {
+          if (revision === saveRevision.current) setSaveStatus("saved");
+        },
+        () => {
+          if (revision === saveRevision.current) setSaveStatus("error");
+        },
+      );
+    }, 800);
+
+    return () => window.clearTimeout(timer);
   }, [data]);
 
   useEffect(() => {
@@ -320,6 +391,7 @@ export default function PlannerApp() {
   }, [data.settings.theme, data.settings.density]);
 
   const update = (recipe: (current: PlannerData) => PlannerData, message?: string) => {
+    if (!hydrated.current) changedDuringLoad.current = true;
     setData((current) => recipe(current));
     if (message) setToast(message);
   };
@@ -351,9 +423,10 @@ export default function PlannerApp() {
             </button>
           ))}
         </nav>
+        <div className="sidebar-status"><SaveIndicator status={saveStatus} /></div>
         <div className="sidebar-foot">
           <span className="avatar">Г</span>
-          <div><strong>Гость</strong><span>Локальное пространство</span></div>
+          <div><strong>Гость</strong><span>Синхронизация включена</span></div>
         </div>
       </aside>
 
@@ -361,7 +434,7 @@ export default function PlannerApp() {
         <button className="brand" onClick={() => navigate({ page: "overview" })}>
           <span className="brand-mark">C</span><span>Cadence</span>
         </button>
-        <span>{title}</span>
+        <div className="mobile-meta"><span>{title}</span><SaveIndicator status={saveStatus} /></div>
       </div>
 
       <main className="content">
@@ -1068,8 +1141,8 @@ function Settings({
       <div className="settings-layout">
         <section className="card settings-section">
           <h2>Аккаунт и синхронизация</h2>
-          <div className="setting-row"><div><strong>Гость</strong><span>Локальное пространство</span></div><Button variant="secondary" disabled>Подключить аккаунт</Button></div>
-          <div className="setting-row"><div><strong>Облачная синхронизация</strong><span>Не подключена</span></div><span className="switch disabled" /></div>
+          <div className="setting-row"><div><strong>Гость</strong><span>Облачное пространство</span></div><Button variant="secondary" disabled>Подключить аккаунт</Button></div>
+          <div className="setting-row"><div><strong>Облачная синхронизация</strong><span>Cloudflare D1</span></div><span className="switch on disabled"><span /></span></div>
           <div className="setting-row"><div><strong>Выход со всех устройств</strong></div><Button variant="ghost" disabled>Выйти</Button></div>
         </section>
         <section className="card settings-section">
@@ -1092,7 +1165,7 @@ function Settings({
         <section className="card settings-section data-section">
           <h2>Данные</h2>
           <div className="data-actions">
-            <Button variant="secondary" onClick={() => plannerStorage.export(data)}>Экспортировать</Button>
+            <Button variant="secondary" onClick={() => downloadPlannerBackup(data)}>Экспортировать</Button>
             <Button variant="secondary" onClick={() => fileRef.current?.click()}>Импортировать</Button>
             <Button variant="danger" onClick={() => setModal({ kind: "confirm-reset" })}>Удалить данные</Button>
             <input
@@ -1104,8 +1177,8 @@ function Settings({
                 const file = event.target.files?.[0];
                 if (!file) return;
                 try {
-                  const next = JSON.parse(await file.text()) as PlannerData;
-                  if (next.version !== 2) throw new Error();
+                  const next: unknown = JSON.parse(await file.text());
+                  if (!isPlannerData(next)) throw new Error();
                   update(() => next, "Данные импортированы");
                 } catch {
                   window.alert("Не удалось импортировать файл");
@@ -1136,7 +1209,7 @@ function ModalHost({
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
   setModal: (m: ModalState) => void;
 }) {
-  if (modal.kind === "direction") return <DirectionForm data={data} direction={modal.direction} close={close} update={update} />;
+  if (modal.kind === "direction") return <DirectionForm direction={modal.direction} close={close} update={update} />;
   if (modal.kind === "activity") return <ActivityForm activity={modal.activity} close={close} update={update} />;
   if (modal.kind === "day") return <DayForm data={data} date={modal.date} close={close} update={update} />;
   if (modal.kind === "work") return <WorkForm data={data} date={modal.date} close={close} update={update} />;
@@ -1149,12 +1222,11 @@ function ModalHost({
   if (modal.kind === "details") return <Details data={data} {...modal} close={close} />;
   return (
     <Modal title="Удалить данные?" onClose={close}>
-      <p className="confirm-copy">Все изменения и демонстрационные данные будут удалены с этого устройства.</p>
+      <p className="confirm-copy">Все данные будут удалены из облачного хранилища и локальной резервной копии.</p>
       <div className="modal-actions">
         <Button variant="secondary" onClick={close}>Отмена</Button>
         <Button variant="danger" onClick={() => {
-          plannerStorage.reset();
-          update(() => plannerStorage.load(), "Данные удалены");
+          update(() => createInitialData(), "Данные удалены");
           close();
         }}>Удалить</Button>
       </div>
@@ -1163,12 +1235,10 @@ function ModalHost({
 }
 
 function DirectionForm({
-  data,
   direction,
   close,
   update,
 }: {
-  data: PlannerData;
   direction?: Direction;
   close: () => void;
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
