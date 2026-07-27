@@ -145,6 +145,24 @@ input, select {
   gap: 10px;
 }
 
+.sidebar-account { align-items: flex-start; position: relative; }
+.sidebar-account-copy { flex: 1; padding-right: 2px; }
+.sidebar-account-copy strong,
+.sidebar-account-copy span {
+  max-width: 125px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-account-action {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+}
+
 .sidebar-status {
   margin-top: auto;
   padding: 0 8px 10px;
@@ -188,9 +206,9 @@ input, select {
   font-weight: 700;
 }
 
-.sidebar-foot div { display: flex; flex-direction: column; min-width: 0; }
+.sidebar-foot > div { display: flex; flex-direction: column; min-width: 0; }
 .sidebar-foot strong { font-size: 13px; }
-.sidebar-foot div span { color: var(--muted); font-size: 11px; }
+.sidebar-foot > div > span { color: var(--muted); font-size: 11px; }
 
 .content {
   width: min(1240px, calc(100vw - 236px));
@@ -231,6 +249,13 @@ input, select {
 .button-secondary:hover, .button-ghost:hover { border-color: var(--accent); color: var(--accent); }
 .button-ghost { background: transparent; border-color: transparent; color: var(--accent); }
 .button-danger { background: transparent; border-color: #dca9a2; color: var(--danger); }
+
+.auth-form { min-width: min(360px, 76vw); display: flex; flex-direction: column; gap: 14px; }
+.auth-form > p { margin: 0 0 2px; color: var(--muted); }
+.auth-form label { display: flex; flex-direction: column; gap: 6px; font-weight: 610; }
+.auth-form input { min-height: 42px; padding: 9px 11px; border-radius: 9px; }
+.auth-form .auth-error { margin: 0; color: var(--danger); }
+.auth-mode { align-self: center; margin-top: -2px; }
 
 .card {
   background: var(--surface);

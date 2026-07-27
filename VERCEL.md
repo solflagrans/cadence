@@ -10,7 +10,13 @@ local backup in `localStorage`.
 2. In the Vercel project, open **Storage**, add the **Neon** integration, and
    connect it to Production, Preview, and Development.
 3. Confirm that the integration created the `DATABASE_URL` environment variable.
-4. Redeploy the project.
+4. Enable **Auth** for the database in the Vercel Neon integration or the
+   Neon Console.
+5. Confirm that the integration added `NEON_AUTH_BASE_URL`; if it did not,
+   copy the value from Neon Auth into the Vercel project.
+6. Generate a stable secret with `openssl rand -base64 32` and add it to
+   Vercel as `NEON_AUTH_COOKIE_SECRET`.
+7. Redeploy the project.
 
 Vercel automatically runs `npm run build`. The build applies the idempotent
 database migration before compiling Next.js, so a deployment without Neon
@@ -28,5 +34,7 @@ npm run db:migrate
 npm run dev
 ```
 
-Without `DATABASE_URL`, the interface still runs locally and uses its
-`localStorage` backup, while cloud synchronization reports an error.
+Without the Neon Auth variables, the interface still runs locally in guest
+mode. Guest data is stored only in `localStorage`; authenticated users receive
+a separate local backup and a cloud state row tied to their server-verified
+account.

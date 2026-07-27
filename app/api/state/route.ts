@@ -1,10 +1,13 @@
 import { neon } from "@neondatabase/serverless";
+import {
+  getCurrentAccount,
+  storageUserId,
+} from "@/app/lib/auth/server";
 import { normalizePlannerData } from "@/app/lib/normalize-planner-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const FIXED_USER_ID = "guest";
 const MAX_STATE_BYTES = 1_000_000;
 
 type StateRow = {
@@ -26,11 +29,6 @@ const database = () => {
   return neon(connectionString);
 };
 
-const resolveUserId = (): string => {
-  // Replace this fixed identity with a verified session user ID when auth is added.
-  return FIXED_USER_ID;
-};
-
 const bodyState = (body: unknown): unknown => {
   if (!body || typeof body !== "object" || Array.isArray(body)) return undefined;
   return (body as Record<string, unknown>).data;
@@ -41,19 +39,23 @@ const errorMessage = (error: unknown): string =>
 
 const logError = (
   event: "state_load_failed" | "state_save_failed",
+  userId: string,
   error: unknown,
 ): void => {
   console.error({
     event,
-    userId: resolveUserId(),
+    userId,
     error: errorMessage(error),
   });
 };
 
 export async function GET(): Promise<Response> {
-  const userId = resolveUserId();
-
   try {
+    const account = await getCurrentAccount();
+    if (!account) {
+      return json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const userId = storageUserId(account);
     const sql = database();
     const rows = await sql`
       SELECT data, updated_at
@@ -74,7 +76,7 @@ export async function GET(): Promise<Response> {
 
     return json({ data, updatedAt: row.updated_at });
   } catch (error) {
-    logError("state_load_failed", error);
+    logError("state_load_failed", "unknown", error);
     return json({ error: "Unable to load state" }, { status: 500 });
   }
 }
@@ -102,10 +104,13 @@ export async function PUT(request: Request): Promise<Response> {
     return json({ error: "State is too large" }, { status: 413 });
   }
 
-  const userId = resolveUserId();
-  const updatedAt = new Date().toISOString();
-
   try {
+    const account = await getCurrentAccount();
+    if (!account) {
+      return json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const userId = storageUserId(account);
+    const updatedAt = new Date().toISOString();
     const sql = database();
     await sql`
       INSERT INTO user_state (user_id, data, updated_at)
@@ -117,7 +122,7 @@ export async function PUT(request: Request): Promise<Response> {
 
     return json({ updatedAt });
   } catch (error) {
-    logError("state_save_failed", error);
+    logError("state_save_failed", "unknown", error);
     return json({ error: "Unable to save state" }, { status: 500 });
   }
 }

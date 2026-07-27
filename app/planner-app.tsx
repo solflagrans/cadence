@@ -37,9 +37,18 @@ import {
 } from "./lib/data";
 import {
   downloadPlannerBackup,
+  guestStorageScope,
   storageRepository,
+  type StorageScope,
 } from "./lib/storage";
 import { normalizePlannerData } from "./lib/normalize-planner-data";
+import {
+  signInWithEmail,
+  signOutAccount,
+  signUpWithEmail,
+  useAccountSession,
+} from "./lib/auth/client";
+import type { AccountIdentity } from "./lib/auth/types";
 
 type SaveStatus = "saving" | "saved" | "error";
 
@@ -148,10 +157,16 @@ function Badge({
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
-function SaveIndicator({ status }: { status: SaveStatus }) {
+function SaveIndicator({
+  status,
+  localOnly,
+}: {
+  status: SaveStatus;
+  localOnly: boolean;
+}) {
   const label = {
-    saving: "Сохранение…",
-    saved: "Сохранено",
+    saving: localOnly ? "Сохранение локально…" : "Сохранение…",
+    saved: localOnly ? "Сохранено локально" : "Сохранено",
     error: "Ошибка сохранения",
   }[status];
 
@@ -308,9 +323,13 @@ function PlanRows({
 }
 
 export default function PlannerApp() {
-  const [data, setData] = useState<PlannerData>(() => storageRepository.getCachedState());
+  const accountSession = useAccountSession();
+  const [data, setData] = useState<PlannerData>(() =>
+    storageRepository.getCachedState(guestStorageScope),
+  );
   const [route, setRoute] = useState<Route>({ page: "overview" });
   const [modal, setModal] = useState<ModalState>(null);
+  const [authOpen, setAuthOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const hydrated = useRef(false);
@@ -318,6 +337,8 @@ export default function PlannerApp() {
   const skipNextSave = useRef(false);
   const saveRevision = useRef(0);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const loadRevision = useRef(0);
+  const activeStorageScope = useRef<StorageScope>(guestStorageScope);
 
   useEffect(() => {
     const sync = () => setRoute(routeFromHash());
@@ -327,10 +348,24 @@ export default function PlannerApp() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    if (accountSession.status === "loading") return;
 
-    void storageRepository.load().then((result) => {
-      if (cancelled) return;
+    let cancelled = false;
+    const revision = ++loadRevision.current;
+    const scope: StorageScope =
+      accountSession.status === "authenticated"
+        ? {
+            kind: "account",
+            userId: `${accountSession.user.provider}:${accountSession.user.subject}`,
+          }
+        : guestStorageScope;
+
+    activeStorageScope.current = scope;
+    hydrated.current = false;
+    changedDuringLoad.current = false;
+
+    void storageRepository.load(scope).then((result) => {
+      if (cancelled || revision !== loadRevision.current) return;
 
       hydrated.current = true;
       // A failed initial read still leaves a valid local backup available.
@@ -348,7 +383,11 @@ export default function PlannerApp() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [
+    accountSession.status,
+    accountSession.user?.provider,
+    accountSession.user?.subject,
+  ]);
 
   useEffect(() => {
     if (!hydrated.current) return;
@@ -359,13 +398,14 @@ export default function PlannerApp() {
 
     const revision = ++saveRevision.current;
     const snapshot = data;
-    storageRepository.cache(snapshot);
+    const scope = activeStorageScope.current;
+    storageRepository.cache(scope, snapshot);
     setSaveStatus("saving");
 
     const timer = window.setTimeout(() => {
       const operation = saveQueue.current
         .catch(() => undefined)
-        .then(() => storageRepository.save(snapshot));
+        .then(() => storageRepository.save(scope, snapshot));
       saveQueue.current = operation;
 
       void operation.then(
@@ -399,6 +439,19 @@ export default function PlannerApp() {
   };
 
   const title = NAV.find((entry) => entry.page === route.page)?.label ?? "Cadence";
+  const account =
+    accountSession.status === "authenticated" ? accountSession.user : null;
+  const localOnly = !account;
+
+  const signOut = async () => {
+    const error = await signOutAccount();
+    if (error) {
+      setToast(error);
+      return;
+    }
+    await accountSession.refresh();
+    setToast("Вы вышли из аккаунта");
+  };
 
   return (
     <div className="app-shell">
@@ -425,10 +478,28 @@ export default function PlannerApp() {
             </button>
           ))}
         </nav>
-        <div className="sidebar-status"><SaveIndicator status={saveStatus} /></div>
-        <div className="sidebar-foot">
-          <span className="avatar">Г</span>
-          <div><strong>Гость</strong><span>Синхронизация включена</span></div>
+        <div className="sidebar-status">
+          <SaveIndicator status={saveStatus} localOnly={localOnly} />
+        </div>
+        <div className="sidebar-foot sidebar-account">
+          <span className="avatar">{account ? accountInitial(account) : "Г"}</span>
+          <div className="sidebar-account-copy">
+            <strong>{account?.name || "Гость"}</strong>
+            <span>
+              {account
+                ? "Синхронизация с аккаунтом"
+                : "Данные только на этом устройстве"}
+            </span>
+          </div>
+          {account ? (
+            <button className="sidebar-account-action" onClick={() => void signOut()}>
+              Выйти
+            </button>
+          ) : (
+            <button className="sidebar-account-action" onClick={() => setAuthOpen(true)}>
+              Войти
+            </button>
+          )}
         </div>
       </aside>
 
@@ -436,7 +507,10 @@ export default function PlannerApp() {
         <button className="brand" onClick={() => navigate({ page: "overview" })}>
           <span className="brand-mark">C</span><span>Cadence</span>
         </button>
-        <div className="mobile-meta"><span>{title}</span><SaveIndicator status={saveStatus} /></div>
+        <div className="mobile-meta">
+          <span>{title}</span>
+          <SaveIndicator status={saveStatus} localOnly={localOnly} />
+        </div>
       </div>
 
       <main className="content">
@@ -459,7 +533,14 @@ export default function PlannerApp() {
           <DirectionPage data={data} id={route.id} setModal={setModal} />
         )}
         {route.page === "settings" && (
-          <Settings data={data} update={update} setModal={setModal} />
+          <Settings
+            data={data}
+            update={update}
+            setModal={setModal}
+            account={account}
+            openAuth={() => setAuthOpen(true)}
+            signOut={() => void signOut()}
+          />
         )}
       </main>
 
@@ -490,8 +571,115 @@ export default function PlannerApp() {
           setModal={setModal}
         />
       )}
+      {authOpen && (
+        <AuthModal
+          close={() => setAuthOpen(false)}
+          authenticated={async () => {
+            await accountSession.refresh();
+            setAuthOpen(false);
+          }}
+        />
+      )}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
+  );
+}
+
+const accountInitial = (account: AccountIdentity): string =>
+  (account.name || account.email).trim().charAt(0).toUpperCase() || "А";
+
+function AuthModal({
+  close,
+  authenticated,
+}: {
+  close: () => void;
+  authenticated: () => Promise<void>;
+}) {
+  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") ?? "").trim();
+    const password = String(form.get("password") ?? "");
+    const name = String(form.get("name") ?? "").trim();
+
+    try {
+      const message =
+        mode === "sign-in"
+          ? await signInWithEmail(email, password)
+          : await signUpWithEmail(name, email, password);
+      if (message) {
+        setError(message);
+        return;
+      }
+      await authenticated();
+    } catch {
+      setError("Не удалось связаться с сервисом авторизации");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={mode === "sign-in" ? "Вход в Cadence" : "Создание аккаунта"}
+      onClose={close}
+    >
+      <form className="auth-form" onSubmit={submit}>
+        <p>
+          После входа данные будут сохраняться в вашем аккаунте и станут
+          доступны на других устройствах.
+        </p>
+        {mode === "sign-up" && (
+          <label>
+            <span>Имя</span>
+            <input name="name" autoComplete="name" required />
+          </label>
+        )}
+        <label>
+          <span>Email</span>
+          <input name="email" type="email" autoComplete="email" required />
+        </label>
+        <label>
+          <span>Пароль</span>
+          <input
+            name="password"
+            type="password"
+            autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
+            minLength={8}
+            required
+          />
+        </label>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        <Button type="submit" disabled={pending}>
+          {pending
+            ? "Подождите…"
+            : mode === "sign-in"
+              ? "Войти"
+              : "Создать аккаунт"}
+        </Button>
+        <button
+          className="text-link auth-mode"
+          type="button"
+          onClick={() => {
+            setMode((current) =>
+              current === "sign-in" ? "sign-up" : "sign-in",
+            );
+            setError("");
+          }}
+        >
+          {mode === "sign-in"
+            ? "Нет аккаунта? Зарегистрироваться"
+            : "Уже есть аккаунт? Войти"}
+        </button>
+      </form>
+    </Modal>
   );
 }
 
@@ -1129,10 +1317,16 @@ function Settings({
   data,
   update,
   setModal,
+  account,
+  openAuth,
+  signOut,
 }: {
   data: PlannerData;
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
   setModal: (m: ModalState) => void;
+  account: AccountIdentity | null;
+  openAuth: () => void;
+  signOut: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const patchSettings = (patch: Partial<PlannerData["settings"]>) =>
@@ -1143,9 +1337,24 @@ function Settings({
       <div className="settings-layout">
         <section className="card settings-section">
           <h2>Аккаунт и синхронизация</h2>
-          <div className="setting-row"><div><strong>Гость</strong><span>Облачное пространство</span></div><Button variant="secondary" disabled>Подключить аккаунт</Button></div>
-          <div className="setting-row"><div><strong>Облачная синхронизация</strong><span>Neon Postgres</span></div><span className="switch on disabled"><span /></span></div>
-          <div className="setting-row"><div><strong>Выход со всех устройств</strong></div><Button variant="ghost" disabled>Выйти</Button></div>
+          <div className="setting-row">
+            <div>
+              <strong>{account?.name || "Гость"}</strong>
+              <span>{account?.email || "Данные хранятся только на этом устройстве"}</span>
+            </div>
+            {account ? (
+              <Button variant="ghost" onClick={signOut}>Выйти</Button>
+            ) : (
+              <Button variant="secondary" onClick={openAuth}>Войти</Button>
+            )}
+          </div>
+          <div className="setting-row">
+            <div>
+              <strong>Облачная синхронизация</strong>
+              <span>{account ? "Neon Postgres" : "Доступна после входа"}</span>
+            </div>
+            <span className={`switch disabled ${account ? "on" : ""}`}><span /></span>
+          </div>
         </section>
         <section className="card settings-section">
           <h2>Региональные настройки</h2>

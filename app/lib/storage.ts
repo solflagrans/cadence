@@ -6,6 +6,17 @@ const STORAGE_KEY = "cadence-planner-v2";
 const LEGACY_STORAGE_KEYS = ["cadence-planner-v1", "sreda-planner-v1"];
 const STATE_API_PATH = "/api/state";
 
+export type StorageScope =
+  | { kind: "guest" }
+  | { kind: "account"; userId: string };
+
+export const guestStorageScope: StorageScope = { kind: "guest" };
+
+const storageKeyFor = (scope: StorageScope): string =>
+  scope.kind === "guest"
+    ? `${STORAGE_KEY}:guest`
+    : `${STORAGE_KEY}:account:${scope.userId}`;
+
 export type StorageLoadResult = {
   data: PlannerData;
   source: "remote" | "local";
@@ -13,28 +24,40 @@ export type StorageLoadResult = {
 };
 
 export interface StorageRepository {
-  getCachedState(): PlannerData;
-  load(): Promise<StorageLoadResult>;
-  cache(data: PlannerData): void;
-  save(data: PlannerData): Promise<void>;
+  getCachedState(scope: StorageScope): PlannerData;
+  load(scope: StorageScope): Promise<StorageLoadResult>;
+  cache(scope: StorageScope, data: PlannerData): void;
+  save(scope: StorageScope, data: PlannerData): Promise<void>;
 }
 
 class LocalBackup {
-  load(): PlannerData | null {
+  load(scope: StorageScope): PlannerData | null {
     if (typeof window === "undefined") return null;
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const scopedKey = storageKeyFor(scope);
+      const raw =
+        window.localStorage.getItem(scopedKey) ??
+        (scope.kind === "guest"
+          ? window.localStorage.getItem(STORAGE_KEY)
+          : null);
       if (!raw) return null;
       const parsed: unknown = JSON.parse(raw);
-      return normalizePlannerData(parsed);
+      const data = normalizePlannerData(parsed);
+      if (data && !window.localStorage.getItem(scopedKey)) {
+        window.localStorage.setItem(scopedKey, JSON.stringify(data));
+      }
+      return data;
     } catch {
       return null;
     }
   }
 
-  save(data: PlannerData): void {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+  save(scope: StorageScope, data: PlannerData): void {
+    window.localStorage.setItem(storageKeyFor(scope), JSON.stringify(data));
+    if (scope.kind === "guest") {
+      window.localStorage.removeItem(STORAGE_KEY);
+      LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+    }
   }
 }
 
@@ -52,12 +75,16 @@ class ApiStorageRepository implements StorageRepository {
     private readonly apiPath = STATE_API_PATH,
   ) {}
 
-  getCachedState(): PlannerData {
-    return this.backup.load() ?? createInitialData();
+  getCachedState(scope: StorageScope): PlannerData {
+    return this.backup.load(scope) ?? createInitialData();
   }
 
-  async load(): Promise<StorageLoadResult> {
-    const cached = this.getCachedState();
+  async load(scope: StorageScope): Promise<StorageLoadResult> {
+    const cached = this.getCachedState(scope);
+
+    if (scope.kind === "guest") {
+      return { data: cached, source: "local", remoteAvailable: false };
+    }
 
     try {
       const response = await fetch(this.apiPath, {
@@ -82,18 +109,20 @@ class ApiStorageRepository implements StorageRepository {
         throw new Error("State data has an unsupported version");
       }
 
-      this.backup.save(normalized);
+      this.backup.save(scope, normalized);
       return { data: normalized, source: "remote", remoteAvailable: true };
     } catch {
       return { data: cached, source: "local", remoteAvailable: false };
     }
   }
 
-  cache(data: PlannerData): void {
-    this.backup.save(data);
+  cache(scope: StorageScope, data: PlannerData): void {
+    this.backup.save(scope, data);
   }
 
-  async save(data: PlannerData): Promise<void> {
+  async save(scope: StorageScope, data: PlannerData): Promise<void> {
+    if (scope.kind === "guest") return;
+
     const response = await fetch(this.apiPath, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
