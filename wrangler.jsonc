@@ -10,9 +10,5 @@
       "database_name": "cadence",
       "database_id": "9966f543-dce5-424f-9ee6-75b7391d0f40"
     }
-  ],
-  "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1
-  }
+  ]
 }
