@@ -1,29 +1,28 @@
 import type { PlannerData } from "./types";
-import { createDemoData } from "./data";
+import { createInitialData } from "./data";
 
-const STORAGE_KEY = "cadence-planner-v1";
-const LEGACY_STORAGE_KEY = "sreda-planner-v1";
+const STORAGE_KEY = "cadence-planner-v2";
+const LEGACY_STORAGE_KEYS = ["cadence-planner-v1", "sreda-planner-v1"];
 
 export const plannerStorage = {
   load(): PlannerData {
-    if (typeof window === "undefined") return createDemoData();
+    if (typeof window === "undefined") return createInitialData();
     try {
-      const raw =
-        window.localStorage.getItem(STORAGE_KEY) ??
-        window.localStorage.getItem(LEGACY_STORAGE_KEY);
-      if (!raw) return createDemoData();
-      return JSON.parse(raw) as PlannerData;
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return createInitialData();
+      const parsed = JSON.parse(raw) as PlannerData;
+      return parsed.version === 2 ? parsed : createInitialData();
     } catch {
-      return createDemoData();
+      return createInitialData();
     }
   },
   save(data: PlannerData) {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
   },
   reset() {
     window.localStorage.removeItem(STORAGE_KEY);
-    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
   },
   export(data: PlannerData) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });

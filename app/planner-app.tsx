@@ -352,8 +352,8 @@ export default function PlannerApp() {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <span className="avatar">АС</span>
-          <div><strong>Алексей</strong><span>Личное пространство</span></div>
+          <span className="avatar">Г</span>
+          <div><strong>Гость</strong><span>Локальное пространство</span></div>
         </div>
       </aside>
 
@@ -665,7 +665,7 @@ function Plans({ data }: { data: PlannerData }) {
               onClick={() => navigate({ page: "month", id })}
             >
               <div className="month-card-head">
-                <h2>{monthName(id).replace(String(year), "").trim()}</h2>
+                <h2>{dateLabel(`${id}-01`, { month: "long" })}</h2>
                 {id === currentMonth && <Badge tone="blue">Текущий</Badge>}
               </div>
               {month ? (
@@ -867,7 +867,17 @@ function Schedule({
     <>
       <PageHeader
         title="График"
-        actions={<Button onClick={() => setModal({ kind: mode === "types" ? "activity" : "day", ...(mode === "calendar" ? { date: selected[0] ?? iso(new Date()) } : {}) } as ModalState)}>{mode === "types" ? "Новый тип" : "Изменить день"}</Button>}
+        actions={
+          <Button onClick={() => {
+            if (!data.activityTypes.length || mode === "types") {
+              setModal({ kind: "activity" });
+            } else {
+              setModal({ kind: "day", date: selected[0] ?? iso(new Date()) });
+            }
+          }}>
+            {!data.activityTypes.length || mode === "types" ? "Новый тип" : "Изменить день"}
+          </Button>
+        }
       />
       <div className="tab-bar">
         <button className={mode === "calendar" ? "active" : ""} onClick={() => setMode("calendar")}>Календарь</button>
@@ -917,13 +927,20 @@ function Schedule({
         </>
       ) : (
         <section className="card type-list">
-          {data.activityTypes.sort((a, b) => a.order - b.order).map((activity) => (
+          {[...data.activityTypes].sort((a, b) => a.order - b.order).map((activity) => (
             <div key={activity.id}>
               <span className="type-swatch" style={{ background: activity.color }} />
               <div><strong>{activity.name}</strong><span>{activity.archived ? "Архивный" : "Активный"}</span></div>
               <button className="text-link" onClick={() => setModal({ kind: "activity", activity })}>Изменить</button>
             </div>
           ))}
+          {!data.activityTypes.length && (
+            <EmptyState
+              text="Нет типов деятельности"
+              action="Создать тип"
+              onAction={() => setModal({ kind: "activity" })}
+            />
+          )}
         </section>
       )}
     </>
@@ -974,7 +991,13 @@ function Directions({ data, setModal }: { data: PlannerData; setModal: (m: Modal
             </div>
           );
         })}
-        {!filtered.length && <p className="compact-empty">Направления не найдены</p>}
+        {!filtered.length && (
+          <EmptyState
+            text={query || filter !== "all" ? "Направления не найдены" : "Нет направлений"}
+            action="Создать направление"
+            onAction={() => setModal({ kind: "direction" })}
+          />
+        )}
       </section>
     </>
   );
@@ -1045,7 +1068,7 @@ function Settings({
       <div className="settings-layout">
         <section className="card settings-section">
           <h2>Аккаунт и синхронизация</h2>
-          <div className="setting-row"><div><strong>Алексей Соколов</strong><span>Локальное пространство</span></div><Button variant="secondary" disabled>Подключить аккаунт</Button></div>
+          <div className="setting-row"><div><strong>Гость</strong><span>Локальное пространство</span></div><Button variant="secondary" disabled>Подключить аккаунт</Button></div>
           <div className="setting-row"><div><strong>Облачная синхронизация</strong><span>Не подключена</span></div><span className="switch disabled" /></div>
           <div className="setting-row"><div><strong>Выход со всех устройств</strong></div><Button variant="ghost" disabled>Выйти</Button></div>
         </section>
@@ -1082,7 +1105,7 @@ function Settings({
                 if (!file) return;
                 try {
                   const next = JSON.parse(await file.text()) as PlannerData;
-                  if (next.version !== 1) throw new Error();
+                  if (next.version !== 2) throw new Error();
                   update(() => next, "Данные импортированы");
                 } catch {
                   window.alert("Не удалось импортировать файл");
@@ -1131,7 +1154,7 @@ function ModalHost({
         <Button variant="secondary" onClick={close}>Отмена</Button>
         <Button variant="danger" onClick={() => {
           plannerStorage.reset();
-          update(() => plannerStorage.load(), "Данные восстановлены");
+          update(() => plannerStorage.load(), "Данные удалены");
           close();
         }}>Удалить</Button>
       </div>
@@ -1254,6 +1277,14 @@ function DayForm({
     current?.segments.length ? current.segments.map((item) => ({ ...item })) : [{ activityId: data.activityTypes.find((item) => !item.archived)?.id ?? "", percent: 100 }],
   );
   const total = segments.reduce((sum, item) => sum + item.percent, 0);
+  const activeTypes = data.activityTypes.filter((item) => !item.archived);
+  if (!activeTypes.length) {
+    return (
+      <Modal title={dateLabel(date, { weekday: "long", day: "numeric", month: "long" })} onClose={close}>
+        <EmptyState text="Нет типов деятельности" action="Закрыть" onAction={close} />
+      </Modal>
+    );
+  }
   return (
     <Modal title={dateLabel(date, { weekday: "long", day: "numeric", month: "long" })} onClose={close}>
       <form onSubmit={(event) => {
@@ -1275,14 +1306,14 @@ function DayForm({
           {segments.map((segment, index) => (
             <div key={index}>
               <select value={segment.activityId} onChange={(e) => setSegments((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, activityId: e.target.value } : item))}>
-                {data.activityTypes.filter((item) => !item.archived).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                {activeTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
               <div className="percent-input"><input type="number" min="1" max="100" value={segment.percent} onChange={(e) => setSegments((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, percent: Number(e.target.value) } : item))} /><span>%</span></div>
               <button type="button" className="icon-button" disabled={segments.length === 1} onClick={() => setSegments((items) => items.filter((_, itemIndex) => itemIndex !== index))}>×</button>
             </div>
           ))}
         </div>
-        <button type="button" className="add-line" onClick={() => setSegments((items) => [...items, { activityId: data.activityTypes.find((item) => !item.archived && !items.some((segment) => segment.activityId === item.id))?.id ?? data.activityTypes[0].id, percent: 0 }])}>+ Добавить сегмент</button>
+        <button type="button" className="add-line" onClick={() => setSegments((items) => [...items, { activityId: activeTypes.find((item) => !items.some((segment) => segment.activityId === item.id))?.id ?? activeTypes[0].id, percent: 0 }])}>+ Добавить сегмент</button>
         <div className={`sum-line ${total === 100 ? "valid" : "invalid"}`}><span>Сумма</span><strong>{total}%</strong></div>
         {total !== 100 && <p className="form-error">Сумма должна составлять 100%</p>}
         <div className="modal-actions"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button disabled={total !== 100}>Сохранить</Button></div>

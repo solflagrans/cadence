@@ -1,4 +1,4 @@
-import type { PlannerData, MetricType, PlanItem, DayPlan } from "./types";
+import type { PlannerData, MetricType, PlanItem } from "./types";
 
 export const uid = (prefix = "id") =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -86,138 +86,24 @@ export const progress = (fact: number, target: number, metric: MetricType) => {
   return target > 0 ? Math.min(100, Math.round((fact / target) * 100)) : 0;
 };
 
-const plan = (
-  id: string,
-  directionId: string,
-  target: number,
-  metric: MetricType,
-  unit: string,
-  paused?: PlanItem["paused"],
-): PlanItem => ({
-  id,
-  directionId,
-  originalTarget: paused ? target + paused.excluded : target,
-  target,
-  metric,
-  unit,
-  paused,
-  history: paused
-    ? [{ date: paused.date, from: target + paused.excluded, to: target, reason: paused.reason }]
-    : [],
+export const createInitialData = (): PlannerData => ({
+  version: 2,
+  activityTypes: [],
+  directions: [],
+  days: [],
+  months: [],
+  weeks: [],
+  completions: [],
+  extraResults: [],
+  settings: {
+    timezone: "Europe/Moscow",
+    weekStartsOn: "monday",
+    timeFormat: "24",
+    language: "ru",
+    scheduleRange: 14,
+    weekReminder: true,
+    monthReminder: true,
+    theme: "light",
+    density: "comfortable",
+  },
 });
-
-const schedulePattern: DayPlan["segments"][] = [
-  [{ activityId: "employment", percent: 100 }],
-  [{ activityId: "projects", percent: 100 }],
-  [{ activityId: "employment", percent: 100 }],
-  [{ activityId: "projects", percent: 100 }],
-  [
-    { activityId: "employment", percent: 50 },
-    { activityId: "rest", percent: 50 },
-  ],
-  [{ activityId: "projects", percent: 100 }],
-  [{ activityId: "rest", percent: 100 }],
-];
-
-export const createDemoData = (): PlannerData => {
-  const days: DayPlan[] = [];
-  const from = parseDate("2026-06-29");
-  for (let index = 0; index < 42; index += 1) {
-    const date = addDays(from, index);
-    const segments = schedulePattern[index % 7].map((segment) => ({ ...segment }));
-    const projectDay = segments.some((segment) => segment.activityId === "projects");
-    days.push({
-      date: iso(date),
-      segments,
-      workStart: projectDay ? "12:30" : undefined,
-      workEnd: projectDay ? "22:30" : undefined,
-      breaks: projectDay
-        ? [
-            { id: uid("break"), start: "17:00", end: "17:30" },
-            { id: uid("break"), start: "20:00", end: "20:15" },
-          ]
-        : [],
-    });
-  }
-
-  const monthItems = [
-    plan("m-boyars", "boyars", 35, "duration", "ч"),
-    plan("m-speech", "speech", 15, "count", "занятий"),
-    plan("m-vocal", "vocal", 15, "count", "занятий"),
-    plan("m-tg", "telegram", 4, "count", "поста"),
-    plan("m-smm", "smm", 4, "count", "поста"),
-    plan("m-cleaning", "cleaning", 2, "count", "раза"),
-    plan("m-resume", "resume", 1, "checkbox", ""),
-  ];
-  const weekItems = [
-    plan("w-boyars", "boyars", 12, "duration", "ч"),
-    plan("w-speech", "speech", 1, "count", "занятие", {
-      reason: "Болезнь",
-      date: "2026-07-16",
-      excluded: 2,
-    }),
-    plan("w-tg", "telegram", 1, "count", "пост"),
-    plan("w-smm", "smm", 1, "count", "пост"),
-    plan("w-resume", "resume", 1, "checkbox", ""),
-  ];
-  const currentWeekItems = [
-    plan("cw-boyars", "boyars", 10, "duration", "ч"),
-    plan("cw-vocal", "vocal", 3, "count", "занятия"),
-    plan("cw-tg", "telegram", 1, "count", "пост"),
-    plan("cw-cleaning", "cleaning", 1, "count", "раз"),
-  ];
-
-  return {
-    version: 1,
-    activityTypes: [
-      { id: "employment", name: "Работа в найме", color: "#52a675", icon: "briefcase", order: 1, archived: false },
-      { id: "projects", name: "Работа над проектами", color: "#5278d9", icon: "layers", order: 2, archived: false },
-      { id: "rest", name: "Отдых", color: "#8b6cc8", icon: "moon", order: 3, archived: false },
-    ],
-    directions: [
-      { id: "boyars", name: "Проект Boyars", metric: "duration", unit: "ч", color: "#5278d9", availability: "active", metricHistory: [{ metric: "duration", unit: "ч", since: "2026-01" }] },
-      { id: "speech", name: "Речь", metric: "count", unit: "занятий", color: "#db7a57", availability: "active", metricHistory: [{ metric: "count", unit: "занятий", since: "2026-01" }] },
-      { id: "vocal", name: "Вокал", metric: "count", unit: "занятий", color: "#9a6bc5", availability: "active", metricHistory: [{ metric: "count", unit: "занятий", since: "2026-01" }] },
-      { id: "telegram", name: "ТГ-канал", metric: "count", unit: "постов", color: "#43a2b5", availability: "active", metricHistory: [{ metric: "count", unit: "постов", since: "2026-01" }] },
-      { id: "smm", name: "СММ", metric: "count", unit: "постов", color: "#c18f3f", availability: "active", metricHistory: [{ metric: "count", unit: "постов", since: "2026-01" }] },
-      { id: "cleaning", name: "Уборка", metric: "count", unit: "раз", color: "#4c9b8c", availability: "active", metricHistory: [{ metric: "count", unit: "раз", since: "2026-01" }] },
-      { id: "resume", name: "Резюме", metric: "checkbox", unit: "", color: "#74808c", availability: "active", metricHistory: [{ metric: "checkbox", unit: "", since: "2026-01" }] },
-    ],
-    days,
-    months: [{ id: "2026-07", month: "2026-07", items: monthItems }],
-    weeks: [
-      { id: "2026-07-13", start: "2026-07-13", monthId: "2026-07", items: weekItems },
-      { id: "2026-07-20", start: "2026-07-20", monthId: "2026-07", items: currentWeekItems },
-    ],
-    completions: [
-      { id: "c1", directionId: "boyars", weekId: "2026-07-13", date: "2026-07-14", value: 5.2 },
-      { id: "c2", directionId: "boyars", weekId: "2026-07-13", date: "2026-07-16", value: 5 },
-      { id: "c3", directionId: "speech", weekId: "2026-07-13", date: "2026-07-15", value: 1 },
-      { id: "c4", directionId: "smm", weekId: "2026-07-13", date: "2026-07-17", value: 1 },
-      { id: "c5", directionId: "resume", weekId: "2026-07-13", date: "2026-07-17", value: 1 },
-      { id: "c6", directionId: "vocal", weekId: "2026-07-06", date: "2026-07-08", value: 9 },
-      { id: "c7", directionId: "telegram", weekId: "2026-07-06", date: "2026-07-09", value: 2 },
-      { id: "c8", directionId: "cleaning", weekId: "2026-07-06", date: "2026-07-10", value: 1 },
-      { id: "c9", directionId: "boyars", weekId: "2026-07-20", date: "2026-07-21", value: 4.5 },
-      { id: "c10", directionId: "boyars", weekId: "2026-07-20", date: "2026-07-24", value: 3.2 },
-      { id: "c11", directionId: "vocal", weekId: "2026-07-20", date: "2026-07-22", value: 2 },
-      { id: "c12", directionId: "telegram", weekId: "2026-07-20", date: "2026-07-23", value: 1 },
-    ],
-    extraResults: [
-      { id: "e1", weekId: "2026-07-13", title: "Подготовлен квартальный отчёт", metric: "checkbox", unit: "", value: 1, date: "2026-07-14" },
-      { id: "e2", weekId: "2026-07-13", title: "Оформлен брендбук", metric: "checkbox", unit: "", value: 1, date: "2026-07-16" },
-      { id: "e3", weekId: "2026-07-13", title: "Выполнено учебное задание", metric: "checkbox", unit: "", value: 1, date: "2026-07-17" },
-    ],
-    settings: {
-      timezone: "Europe/Moscow",
-      weekStartsOn: "monday",
-      timeFormat: "24",
-      language: "ru",
-      scheduleRange: 14,
-      weekReminder: true,
-      monthReminder: true,
-      theme: "light",
-      density: "comfortable",
-    },
-  };
-};

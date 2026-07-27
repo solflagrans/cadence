@@ -89,7 +89,7 @@ export type AppSettings = {
 };
 
 export type PlannerData = {
-  version: 1;
+  version: 2;
   activityTypes: ActivityType[];
   directions: Direction[];
   days: DayPlan[];
