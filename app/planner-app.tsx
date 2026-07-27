@@ -1471,11 +1471,19 @@ function DirectionForm({
   close: () => void;
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
 }) {
+  const normalizeUnit = (nextMetric: MetricType, nextUnit: string) => {
+    if (nextMetric === "checkbox" || nextMetric === "percent") return "";
+    if (nextMetric === "duration") return nextUnit === "мин." || nextUnit === "ч." ? nextUnit : "ч.";
+    return nextUnit.trim() || "раз";
+  };
   const [name, setName] = useState(direction?.name ?? "");
   const [metric, setMetric] = useState<MetricType>(direction?.metric ?? "count");
-  const [unit, setUnit] = useState(direction?.unit ?? "раз");
+  const [unit, setUnit] = useState(
+    normalizeUnit(direction?.metric ?? "count", direction?.unit ?? "раз"),
+  );
   const [color, setColor] = useState(direction?.color ?? "#5278d9");
   const [availability, setAvailability] = useState(direction?.availability ?? "active");
+  const savedUnit = normalizeUnit(metric, unit);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!name.trim()) return;
@@ -1487,11 +1495,11 @@ function DirectionForm({
             ...item,
             name: name.trim(),
             metric,
-            unit: metric === "checkbox" ? "" : unit.trim(),
+            unit: savedUnit,
             color,
             availability,
-            metricHistory: metric !== item.metric || unit !== item.unit
-              ? [...item.metricHistory, { metric, unit: metric === "checkbox" ? "" : unit.trim(), since: iso(new Date()).slice(0, 7) }]
+            metricHistory: metric !== item.metric || savedUnit !== item.unit
+              ? [...item.metricHistory, { metric, unit: savedUnit, since: iso(new Date()).slice(0, 7) }]
               : item.metricHistory,
           } : item),
         };
@@ -1502,10 +1510,10 @@ function DirectionForm({
           id: uid("direction"),
           name: name.trim(),
           metric,
-          unit: metric === "checkbox" ? "" : unit.trim(),
+          unit: savedUnit,
           color,
           availability: "active",
-          metricHistory: [{ metric, unit: metric === "checkbox" ? "" : unit.trim(), since: iso(new Date()).slice(0, 7) }],
+          metricHistory: [{ metric, unit: savedUnit, since: iso(new Date()).slice(0, 7) }],
         }],
       };
     }, direction ? "Направление обновлено" : "Направление создано");
@@ -1541,8 +1549,16 @@ function DirectionForm({
     <Modal title={direction ? "Изменить направление" : "Новое направление"} onClose={close}>
       <form onSubmit={submit} className="form-grid">
         <label className="field field-full"><span>Название</span><input autoFocus value={name} onChange={(e) => setName(e.target.value)} required /></label>
-        <label className="field"><span>Метрика</span><select value={metric} onChange={(e) => setMetric(e.target.value as MetricType)}>{Object.entries(metricName).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        {metric !== "checkbox" && <label className="field"><span>Единица</span><input value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
+        <label className="field"><span>Метрика</span><select value={metric} onChange={(e) => {
+          const nextMetric = e.target.value as MetricType;
+          setMetric(nextMetric);
+          setUnit(normalizeUnit(
+            nextMetric,
+            nextMetric === direction?.metric ? direction.unit : nextMetric === "count" ? "раз" : "",
+          ));
+        }}>{Object.entries(metricName).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        {metric === "count" && <label className="field"><span>Единица</span><input value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
+        {metric === "duration" && <label className="field"><span>Единица</span><select value={savedUnit} onChange={(e) => setUnit(e.target.value)}><option value="ч.">ч.</option><option value="мин.">мин.</option></select></label>}
         <label className="field"><span>Цвет</span><input type="color" value={color} onChange={(e) => setColor(e.target.value)} /></label>
         {direction && <label className="field"><span>Доступность</span><select value={availability} onChange={(e) => setAvailability(e.target.value as Direction["availability"])}><option value="active">Активно</option><option value="paused">Приостановлено</option><option value="archived">Архив</option></select></label>}
         <div className="modal-actions field-full">
@@ -1831,15 +1847,24 @@ function PlanForm({
       const direction = data.directions.find((item) => item.id === row.directionId)!;
       const metricSource = scope === "week" ? month?.items.find((item) => item.directionId === row.directionId) : undefined;
       const metric = metricSource?.metric ?? direction.metric;
+      const planUnit = metric === "checkbox" || metric === "percent"
+        ? ""
+        : metricSource?.unit ?? direction.unit;
       const target = metric === "checkbox" ? 1 : row.target;
-      if (old) return { ...old, target, history: old.target !== target ? [...old.history, { date: iso(new Date()), from: old.target, to: target, reason: "Изменение плана" }] : old.history };
+      if (old) return {
+        ...old,
+        target,
+        metric,
+        unit: planUnit,
+        history: old.target !== target ? [...old.history, { date: iso(new Date()), from: old.target, to: target, reason: "Изменение плана" }] : old.history,
+      };
       return {
         id: uid("plan"),
         directionId: row.directionId,
         originalTarget: target,
         target,
         metric,
-        unit: metricSource?.unit ?? direction.unit,
+        unit: planUnit,
         history: [],
       };
     });
@@ -1924,6 +1949,32 @@ function findPlan(data: PlannerData, scope: "month" | "week", planId: string) {
   return scope === "month" ? data.months.find((item) => item.id === planId) : data.weeks.find((item) => item.id === planId);
 }
 
+function currentPlanMetric(
+  data: PlannerData,
+  scope: "month" | "week",
+  planId: string,
+  direction: Direction,
+) {
+  if (direction.metric === "checkbox") return { metric: direction.metric, unit: "" };
+  if (scope === "month") {
+    return {
+      metric: direction.metric,
+      unit: direction.metric === "percent" ? "" : direction.unit,
+    };
+  }
+  const week = data.weeks.find((item) => item.id === planId);
+  const monthItem = data.months
+    .find((item) => item.id === week?.monthId)
+    ?.items.find((item) => item.directionId === direction.id);
+  const metric = monthItem?.metric ?? direction.metric;
+  return {
+    metric,
+    unit: metric === "checkbox" || metric === "percent"
+      ? ""
+      : monthItem?.unit ?? direction.unit,
+  };
+}
+
 function EditItemForm({
   data,
   scope,
@@ -1946,6 +1997,8 @@ function EditItemForm({
   const direction = data.directions.find((entry) => entry.id === item?.directionId);
   const [target, setTarget] = useState(item?.target ?? 0);
   if (!item || !direction) return null;
+  const planMetric = currentPlanMetric(data, scope, planId, direction);
+  const savedTarget = planMetric.metric === "checkbox" ? 1 : target;
   const replaceItem = (current: PlannerData, nextItems: PlanItem[]) => scope === "month"
     ? { ...current, months: current.months.map((entry) => entry.id === planId ? { ...entry, items: nextItems } : entry) }
     : { ...current, weeks: current.weeks.map((entry) => entry.id === planId ? { ...entry, items: nextItems } : entry) };
@@ -1956,14 +2009,22 @@ function EditItemForm({
         if (periodStatus(planId, scope) !== (scope === "month" ? "Будущий" : "Будущая") && !window.confirm("Изменить план? Статистика периода будет пересчитана")) return;
         update((current) => {
           const currentPlan = findPlan(current, scope, planId)!;
-          return replaceItem(current, currentPlan.items.map((entry) => entry.id === itemId ? { ...entry, target, history: [...entry.history, { date: iso(new Date()), from: entry.target, to: target, reason: "Изменение плана" }] } : entry));
+          return replaceItem(current, currentPlan.items.map((entry) => entry.id === itemId ? {
+            ...entry,
+            target: savedTarget,
+            metric: planMetric.metric,
+            unit: planMetric.unit,
+            history: entry.target !== savedTarget
+              ? [...entry.history, { date: iso(new Date()), from: entry.target, to: savedTarget, reason: "Изменение плана" }]
+              : entry.history,
+          } : entry));
         }, "План изменён");
         close();
       }}>
-        {item.metric === "checkbox" ? (
+        {planMetric.metric === "checkbox" ? (
           <div className="calculation-box"><span>План <strong>Отметка</strong></span></div>
         ) : (
-          <label className="field"><span>План, {item.unit || metricName[item.metric].toLowerCase()}</span><input type="number" min="0" step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
+          <label className="field"><span>План, {planMetric.metric === "percent" ? "%" : planMetric.unit || metricName[planMetric.metric].toLowerCase()}</span><input type="number" min="0" step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
         )}
         <div className="action-list">
           <button type="button" onClick={() => setModal({ kind: "pause", scope, planId, itemId, returnToEdit: true })}>{item.paused ? "Изменить приостановку" : scope === "month" ? "Приостановить до конца месяца" : "Приостановить на неделю"}<span>→</span></button>
