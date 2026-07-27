@@ -46,7 +46,7 @@ const isApiStateResponse = (value: unknown): value is ApiStateResponse => {
   return candidate.data !== undefined && typeof candidate.updatedAt === "string";
 };
 
-class CloudflareStorageRepository implements StorageRepository {
+class ApiStorageRepository implements StorageRepository {
   constructor(
     private readonly backup: LocalBackup,
     private readonly apiPath = STATE_API_PATH,
@@ -107,7 +107,7 @@ class CloudflareStorageRepository implements StorageRepository {
 }
 
 export const storageRepository: StorageRepository =
-  new CloudflareStorageRepository(new LocalBackup());
+  new ApiStorageRepository(new LocalBackup());
 
 export function downloadPlannerBackup(data: PlannerData): void {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });

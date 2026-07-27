@@ -7,7 +7,6 @@
 /out/
 
 # Build and test output
-/dist/
 /coverage/
 /.turbo/
 *.tsbuildinfo
@@ -25,7 +24,6 @@ pnpm-debug.log*
 
 # Local tools and editors
 /.vercel/
-/.wrangler/
 /.vscode/
 /.idea/
 

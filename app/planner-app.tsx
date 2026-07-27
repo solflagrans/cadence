@@ -1144,7 +1144,7 @@ function Settings({
         <section className="card settings-section">
           <h2>Аккаунт и синхронизация</h2>
           <div className="setting-row"><div><strong>Гость</strong><span>Облачное пространство</span></div><Button variant="secondary" disabled>Подключить аккаунт</Button></div>
-          <div className="setting-row"><div><strong>Облачная синхронизация</strong><span>Cloudflare D1</span></div><span className="switch on disabled"><span /></span></div>
+          <div className="setting-row"><div><strong>Облачная синхронизация</strong><span>Neon Postgres</span></div><span className="switch on disabled"><span /></span></div>
           <div className="setting-row"><div><strong>Выход со всех устройств</strong></div><Button variant="ghost" disabled>Выйти</Button></div>
         </section>
         <section className="card settings-section">

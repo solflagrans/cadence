@@ -7,15 +7,13 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "deploy": "wrangler d1 migrations apply cadence --remote && wrangler deploy",
-    "preview": "wrangler dev --port 3000",
-    "cf:types": "wrangler types",
-    "db:migrate:local": "wrangler d1 migrations apply cadence --local",
-    "db:migrate:remote": "wrangler d1 migrations apply cadence --remote",
-    "lint": "eslint . --ignore-pattern .next --ignore-pattern dist --ignore-pattern .wrangler --ignore-pattern worker-configuration.d.ts"
+    "build": "node scripts/migrate.mjs && next build",
+    "start": "next start",
+    "db:migrate": "node scripts/migrate.mjs",
+    "lint": "eslint . --ignore-pattern .next --ignore-pattern coverage"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
@@ -28,8 +26,7 @@
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "4.2.1",
-    "typescript": "5.9.3",
-    "wrangler": "^4.114.0"
+    "typescript": "5.9.3"
   },
   "type": "module"
 }
