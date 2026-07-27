@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "deploy": "wrangler pages deploy dist --project-name=cadence",
     "preview": "wrangler pages dev",
     "cf:types": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply cadence --local",

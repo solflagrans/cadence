@@ -33,5 +33,6 @@ Connect the repository to Pages and use:
 
 - Build command: `npm run build`
 - Build output directory: `dist`
+- Deploy command (when the build platform requests one): `npm run deploy`
 
 The `wrangler.jsonc` file is the source of truth for the Pages configuration and the `DB` binding.
