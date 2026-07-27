@@ -62,7 +62,11 @@ const NAV: { page: Route["page"]; label: string; short: string }[] = [
 ];
 
 type ModalState =
-  | { kind: "direction"; direction?: Direction }
+  | {
+      kind: "direction";
+      direction?: Direction;
+      returnToPlan?: { scope: "month" | "week"; id: string };
+    }
   | { kind: "activity"; activity?: ActivityType }
   | { kind: "day"; date: string }
   | { kind: "work"; date: string }
@@ -71,8 +75,8 @@ type ModalState =
   | { kind: "month-plan"; monthId: string }
   | { kind: "week-plan"; weekId: string }
   | { kind: "edit-item"; scope: "month" | "week"; planId: string; itemId: string }
-  | { kind: "pause"; scope: "month" | "week"; planId: string; itemId: string }
-  | { kind: "details"; scope: "month" | "week"; planId: string; itemId: string }
+  | { kind: "pause"; scope: "month" | "week"; planId: string; itemId: string; returnToEdit?: boolean }
+  | { kind: "details"; scope: "month" | "week"; planId: string; itemId: string; returnToEdit?: boolean }
   | { kind: "confirm-reset" }
   | null;
 
@@ -1336,7 +1340,7 @@ function Settings({
       <PageHeader title="Настройки" />
       <div className="settings-layout">
         <section className="card settings-section">
-          <h2>Аккаунт и синхронизация</h2>
+          <h2>Аккаунт</h2>
           <div className="setting-row">
             <div>
               <strong>{account?.name || "Гость"}</strong>
@@ -1347,13 +1351,6 @@ function Settings({
             ) : (
               <Button variant="secondary" onClick={openAuth}>Войти</Button>
             )}
-          </div>
-          <div className="setting-row">
-            <div>
-              <strong>Облачная синхронизация</strong>
-              <span>{account ? "Neon Postgres" : "Доступна после входа"}</span>
-            </div>
-            <span className={`switch disabled ${account ? "on" : ""}`}><span /></span>
           </div>
         </section>
         <section className="card settings-section">
@@ -1420,17 +1417,37 @@ function ModalHost({
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
   setModal: (m: ModalState) => void;
 }) {
-  if (modal.kind === "direction") return <DirectionForm direction={modal.direction} close={close} update={update} />;
+  if (modal.kind === "direction") {
+    const returnToPlan = modal.returnToPlan;
+    const directionClose = returnToPlan
+      ? () => setModal(
+          returnToPlan.scope === "month"
+            ? { kind: "month-plan", monthId: returnToPlan.id }
+            : { kind: "week-plan", weekId: returnToPlan.id },
+        )
+      : close;
+    return <DirectionForm direction={modal.direction} close={directionClose} update={update} />;
+  }
   if (modal.kind === "activity") return <ActivityForm activity={modal.activity} close={close} update={update} />;
   if (modal.kind === "day") return <DayForm data={data} date={modal.date} close={close} update={update} />;
   if (modal.kind === "work") return <WorkForm data={data} date={modal.date} close={close} update={update} />;
   if (modal.kind === "fact") return <FactForm data={data} weekId={modal.weekId} directionId={modal.directionId} close={close} update={update} />;
   if (modal.kind === "extra") return <ExtraForm weekId={modal.weekId} close={close} update={update} />;
-  if (modal.kind === "month-plan") return <PlanForm data={data} scope="month" id={modal.monthId} close={close} update={update} />;
-  if (modal.kind === "week-plan") return <PlanForm data={data} scope="week" id={modal.weekId} close={close} update={update} />;
+  if (modal.kind === "month-plan") return <PlanForm data={data} scope="month" id={modal.monthId} close={close} update={update} setModal={setModal} />;
+  if (modal.kind === "week-plan") return <PlanForm data={data} scope="week" id={modal.weekId} close={close} update={update} setModal={setModal} />;
   if (modal.kind === "edit-item") return <EditItemForm data={data} {...modal} close={close} update={update} setModal={setModal} />;
-  if (modal.kind === "pause") return <PauseForm data={data} {...modal} close={close} update={update} />;
-  if (modal.kind === "details") return <Details data={data} {...modal} close={close} />;
+  if (modal.kind === "pause") {
+    const nestedClose = modal.returnToEdit
+      ? () => setModal({ kind: "edit-item", scope: modal.scope, planId: modal.planId, itemId: modal.itemId })
+      : close;
+    return <PauseForm data={data} {...modal} close={nestedClose} update={update} />;
+  }
+  if (modal.kind === "details") {
+    const nestedClose = modal.returnToEdit
+      ? () => setModal({ kind: "edit-item", scope: modal.scope, planId: modal.planId, itemId: modal.itemId })
+      : close;
+    return <Details data={data} {...modal} close={nestedClose} />;
+  }
   return (
     <Modal title="Удалить данные?" onClose={close}>
       <p className="confirm-copy">Все данные будут удалены из облачного хранилища и локальной резервной копии.</p>
@@ -1494,6 +1511,32 @@ function DirectionForm({
     }, direction ? "Направление обновлено" : "Направление создано");
     close();
   };
+  const remove = () => {
+    if (!direction) return;
+    if (!window.confirm(
+      "Удалить направление? Оно также будет удалено из всех планов вместе с записями выполнения.",
+    )) return;
+
+    update((current) => ({
+      ...current,
+      directions: current.directions.filter((item) => item.id !== direction.id),
+      months: current.months.map((month) => ({
+        ...month,
+        items: month.items.filter((item) => item.directionId !== direction.id),
+      })),
+      weeks: current.weeks.map((week) => ({
+        ...week,
+        items: week.items.filter((item) => item.directionId !== direction.id),
+      })),
+      completions: current.completions.filter(
+        (completion) => completion.directionId !== direction.id,
+      ),
+    }), "Направление удалено");
+    close();
+    if (routeFromHash().page === "direction") {
+      navigate({ page: "directions" });
+    }
+  };
   return (
     <Modal title={direction ? "Изменить направление" : "Новое направление"} onClose={close}>
       <form onSubmit={submit} className="form-grid">
@@ -1502,7 +1545,11 @@ function DirectionForm({
         {metric !== "checkbox" && <label className="field"><span>Единица</span><input value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
         <label className="field"><span>Цвет</span><input type="color" value={color} onChange={(e) => setColor(e.target.value)} /></label>
         {direction && <label className="field"><span>Доступность</span><select value={availability} onChange={(e) => setAvailability(e.target.value as Direction["availability"])}><option value="active">Активно</option><option value="paused">Приостановлено</option><option value="archived">Архив</option></select></label>}
-        <div className="modal-actions field-full"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button type="submit">Сохранить</Button></div>
+        <div className="modal-actions field-full">
+          {direction && <Button variant="danger" type="button" onClick={remove}>Удалить</Button>}
+          <Button variant="secondary" type="button" onClick={close}>Отмена</Button>
+          <Button type="submit">Сохранить</Button>
+        </div>
       </form>
     </Modal>
   );
@@ -1744,12 +1791,14 @@ function PlanForm({
   id,
   close,
   update,
+  setModal,
 }: {
   data: PlannerData;
   scope: "month" | "week";
   id: string;
   close: () => void;
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
+  setModal: (m: ModalState) => void;
 }) {
   const existing = scope === "month" ? data.months.find((item) => item.id === id) : data.weeks.find((item) => item.id === id);
   const monthId = scope === "month" ? id : monthIdForWeek(id);
@@ -1757,6 +1806,16 @@ function PlanForm({
   const candidates = scope === "month"
     ? data.directions.filter((item) => item.availability === "active")
     : data.directions.filter((direction) => month?.items.some((item) => item.directionId === direction.id && !item.paused) && direction.availability === "active");
+  const metricForDirection = (directionId: string) => {
+    const direction = data.directions.find((item) => item.id === directionId);
+    const monthItem = scope === "week"
+      ? month?.items.find((item) => item.directionId === directionId)
+      : undefined;
+    return {
+      metric: monthItem?.metric ?? direction?.metric,
+      unit: monthItem?.unit ?? direction?.unit ?? "",
+    };
+  };
   const [rows, setRows] = useState<{ directionId: string; target: number }[]>(
     existing?.items.map((item) => ({ directionId: item.directionId, target: item.target })) ?? candidates.slice(0, scope === "month" ? 4 : 3).map((item) => ({ directionId: item.id, target: 1 })),
   );
@@ -1771,13 +1830,15 @@ function PlanForm({
       const old = oldItems.find((item) => item.directionId === row.directionId);
       const direction = data.directions.find((item) => item.id === row.directionId)!;
       const metricSource = scope === "week" ? month?.items.find((item) => item.directionId === row.directionId) : undefined;
-      if (old) return { ...old, target: row.target, history: old.target !== row.target ? [...old.history, { date: iso(new Date()), from: old.target, to: row.target, reason: "Изменение плана" }] : old.history };
+      const metric = metricSource?.metric ?? direction.metric;
+      const target = metric === "checkbox" ? 1 : row.target;
+      if (old) return { ...old, target, history: old.target !== target ? [...old.history, { date: iso(new Date()), from: old.target, to: target, reason: "Изменение плана" }] : old.history };
       return {
         id: uid("plan"),
         directionId: row.directionId,
-        originalTarget: row.target,
-        target: row.target,
-        metric: metricSource?.metric ?? direction.metric,
+        originalTarget: target,
+        target,
+        metric,
         unit: metricSource?.unit ?? direction.unit,
         history: [],
       };
@@ -1790,20 +1851,57 @@ function PlanForm({
   };
   return (
     <Modal title={`${existing ? "Изменить" : "Запланировать"} ${scope === "month" ? "месяц" : "неделю"}`} onClose={close} wide>
-      {scope === "week" && !month ? (
+      {!data.directions.length ? (
+        <EmptyState
+          text="Сначала создайте хотя бы одно направление"
+          action="Создать направление"
+          onAction={() => setModal({
+            kind: "direction",
+            returnToPlan: { scope, id },
+          })}
+        />
+      ) : scope === "week" && !month ? (
         <div className="empty-state"><p>Сначала запланируйте месяц</p><Button onClick={() => { close(); navigate({ page: "month", id: monthId }); }}>Открыть месяц</Button></div>
+      ) : !candidates.length ? (
+        <EmptyState
+          text={scope === "month"
+            ? "Нет активных направлений для планирования"
+            : "В месячном плане нет доступных направлений"}
+          action={scope === "month" ? "Создать направление" : "Открыть месяц"}
+          onAction={() => {
+            if (scope === "month") {
+              setModal({
+                kind: "direction",
+                returnToPlan: { scope, id },
+              });
+            } else {
+              close();
+              navigate({ page: "month", id: monthId });
+            }
+          }}
+        />
       ) : (
         <form onSubmit={submit}>
           <div className="plan-editor">
             {rows.map((row, index) => {
               const direction = data.directions.find((item) => item.id === row.directionId);
+              const rowMetric = metricForDirection(row.directionId);
               return (
                 <div key={`${row.directionId}-${index}`}>
-                  <select value={row.directionId} onChange={(e) => setRows((items) => items.map((item, i) => i === index ? { ...item, directionId: e.target.value } : item))}>
+                  <select value={row.directionId} onChange={(e) => {
+                    const nextMetric = metricForDirection(e.target.value).metric;
+                    setRows((items) => items.map((item, i) => i === index
+                      ? { ...item, directionId: e.target.value, target: nextMetric === "checkbox" ? 1 : item.target }
+                      : item));
+                  }}>
                     {candidates.filter((item) => item.id === row.directionId || !rows.some((rowItem) => rowItem.directionId === item.id)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                   </select>
-                  <span className="metric-label">{direction ? `${metricName[direction.metric]}${direction.unit ? ` · ${direction.unit}` : ""}` : ""}</span>
-                  <input type="number" min="0" step="0.1" value={row.target} onChange={(e) => setRows((items) => items.map((item, i) => i === index ? { ...item, target: Number(e.target.value) } : item))} />
+                  <span className="metric-label">{direction && rowMetric.metric ? `${metricName[rowMetric.metric]}${rowMetric.unit ? ` · ${rowMetric.unit}` : ""}` : ""}</span>
+                  {rowMetric.metric === "checkbox" ? (
+                    <span className="checkbox-plan-target">Отметка</span>
+                  ) : (
+                    <input type="number" min="0" step="0.1" value={row.target} onChange={(e) => setRows((items) => items.map((item, i) => i === index ? { ...item, target: Number(e.target.value) } : item))} />
+                  )}
                   <button type="button" className="icon-button" onClick={() => setRows((items) => items.filter((_, i) => i !== index))}>×</button>
                 </div>
               );
@@ -1862,9 +1960,13 @@ function EditItemForm({
         }, "План изменён");
         close();
       }}>
-        <label className="field"><span>План, {item.unit || metricName[item.metric].toLowerCase()}</span><input type="number" min="0" step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
+        {item.metric === "checkbox" ? (
+          <div className="calculation-box"><span>План <strong>Отметка</strong></span></div>
+        ) : (
+          <label className="field"><span>План, {item.unit || metricName[item.metric].toLowerCase()}</span><input type="number" min="0" step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
+        )}
         <div className="action-list">
-          <button type="button" onClick={() => setModal({ kind: "pause", scope, planId, itemId })}>{item.paused ? "Изменить приостановку" : scope === "month" ? "Приостановить до конца месяца" : "Приостановить на неделю"}<span>→</span></button>
+          <button type="button" onClick={() => setModal({ kind: "pause", scope, planId, itemId, returnToEdit: true })}>{item.paused ? "Изменить приостановку" : scope === "month" ? "Приостановить до конца месяца" : "Приостановить на неделю"}<span>→</span></button>
           {item.paused && <button type="button" onClick={() => {
             update((current) => {
               const currentPlan = findPlan(current, scope, planId)!;
@@ -1872,7 +1974,7 @@ function EditItemForm({
             }, "Направление возобновлено");
             close();
           }}>Возобновить<span>→</span></button>}
-          <button type="button" onClick={() => setModal({ kind: "details", scope, planId, itemId })}>Подробности<span>→</span></button>
+          <button type="button" onClick={() => setModal({ kind: "details", scope, planId, itemId, returnToEdit: true })}>Подробности<span>→</span></button>
           {scope === "week" && <button type="button" className="danger-link" onClick={() => {
             if (!window.confirm("Удалить направление из недельного плана?")) return;
             update((current) => {
@@ -1930,8 +2032,14 @@ function PauseForm({
       }}>
         <label className="field field-full"><span>Причина</span><select value={reason} onChange={(e) => setReason(e.target.value)}>{reasons.map((item) => <option key={item}>{item}</option>)}</select></label>
         {reason === "Другое" && <label className="field field-full"><span>Уточнение</span><input value={details} onChange={(e) => setDetails(e.target.value)} required /></label>}
-        <label className="field field-full"><span>Актуальный план</span><input type="number" min="0" max={item.originalTarget} step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
-        <div className="calculation-box field-full"><span>Первоначальный план <strong>{formatValue(item.originalTarget, item.metric, item.unit)}</strong></span><span>Исключено <strong>{formatValue(Math.max(0, item.originalTarget - target), item.metric, item.unit)}</strong></span><span>Актуальный план <strong>{formatValue(target, item.metric, item.unit)}</strong></span></div>
+        {item.metric === "checkbox" ? (
+          <div className="calculation-box field-full"><span>План <strong>Отметка</strong></span></div>
+        ) : (
+          <label className="field field-full"><span>Актуальный план</span><input type="number" min="0" max={item.originalTarget} step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
+        )}
+        {item.metric !== "checkbox" && (
+          <div className="calculation-box field-full"><span>Первоначальный план <strong>{formatValue(item.originalTarget, item.metric, item.unit)}</strong></span><span>Исключено <strong>{formatValue(Math.max(0, item.originalTarget - target), item.metric, item.unit)}</strong></span><span>Актуальный план <strong>{formatValue(target, item.metric, item.unit)}</strong></span></div>
+        )}
         <div className="modal-actions field-full"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button>Приостановить</Button></div>
       </form>
     </Modal>
