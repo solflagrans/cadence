@@ -37,9 +37,9 @@ import {
 } from "./lib/data";
 import {
   downloadPlannerBackup,
-  isPlannerData,
   storageRepository,
 } from "./lib/storage";
+import { normalizePlannerData } from "./lib/normalize-planner-data";
 
 type SaveStatus = "saving" | "saved" | "error";
 
@@ -1179,8 +1179,8 @@ function Settings({
                 const file = event.target.files?.[0];
                 if (!file) return;
                 try {
-                  const next: unknown = JSON.parse(await file.text());
-                  if (!isPlannerData(next)) throw new Error();
+                  const next = normalizePlannerData(JSON.parse(await file.text()) as unknown);
+                  if (!next) throw new Error();
                   update(() => next, "Данные импортированы");
                 } catch {
                   window.alert("Не удалось импортировать файл");

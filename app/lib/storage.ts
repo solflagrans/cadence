@@ -1,5 +1,6 @@
 import type { PlannerData } from "./types";
 import { createInitialData } from "./data";
+import { normalizePlannerData } from "./normalize-planner-data";
 
 const STORAGE_KEY = "cadence-planner-v2";
 const LEGACY_STORAGE_KEYS = ["cadence-planner-v1", "sreda-planner-v1"];
@@ -18,22 +19,6 @@ export interface StorageRepository {
   save(data: PlannerData): Promise<void>;
 }
 
-export const isPlannerData = (value: unknown): value is PlannerData => {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<PlannerData>;
-  return (
-    candidate.version === 2 &&
-    Array.isArray(candidate.activityTypes) &&
-    Array.isArray(candidate.directions) &&
-    Array.isArray(candidate.days) &&
-    Array.isArray(candidate.months) &&
-    Array.isArray(candidate.weeks) &&
-    Array.isArray(candidate.completions) &&
-    Array.isArray(candidate.extraResults) &&
-    Boolean(candidate.settings && typeof candidate.settings === "object")
-  );
-};
-
 class LocalBackup {
   load(): PlannerData | null {
     if (typeof window === "undefined") return null;
@@ -41,7 +26,7 @@ class LocalBackup {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
       const parsed: unknown = JSON.parse(raw);
-      return isPlannerData(parsed) ? parsed : null;
+      return normalizePlannerData(parsed);
     } catch {
       return null;
     }
@@ -53,12 +38,12 @@ class LocalBackup {
   }
 }
 
-type ApiStateResponse = { data: PlannerData; updatedAt: string };
+type ApiStateResponse = { data: unknown; updatedAt: string };
 
 const isApiStateResponse = (value: unknown): value is ApiStateResponse => {
   if (!value || typeof value !== "object") return false;
   const candidate = value as { data?: unknown; updatedAt?: unknown };
-  return isPlannerData(candidate.data) && typeof candidate.updatedAt === "string";
+  return candidate.data !== undefined && typeof candidate.updatedAt === "string";
 };
 
 class CloudflareStorageRepository implements StorageRepository {
@@ -92,9 +77,13 @@ class CloudflareStorageRepository implements StorageRepository {
       if (!isApiStateResponse(payload)) {
         throw new Error("State response has an invalid format");
       }
+      const normalized = normalizePlannerData(payload.data);
+      if (!normalized) {
+        throw new Error("State data has an unsupported version");
+      }
 
-      this.backup.save(payload.data);
-      return { data: payload.data, source: "remote", remoteAvailable: true };
+      this.backup.save(normalized);
+      return { data: normalized, source: "remote", remoteAvailable: true };
     } catch {
       return { data: cached, source: "local", remoteAvailable: false };
     }
