@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler d1 migrations apply cadence --remote && wrangler deploy",
     "preview": "wrangler dev --port 3000",
     "cf:types": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply cadence --local",

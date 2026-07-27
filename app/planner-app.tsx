@@ -333,7 +333,9 @@ export default function PlannerApp() {
       if (cancelled) return;
 
       hydrated.current = true;
-      setSaveStatus(result.remoteAvailable ? "saved" : "error");
+      // A failed initial read still leaves a valid local backup available.
+      // Reserve the error indicator for an actual failed save attempt.
+      setSaveStatus("saved");
 
       if (changedDuringLoad.current) {
         setData((current) => ({ ...current }));
