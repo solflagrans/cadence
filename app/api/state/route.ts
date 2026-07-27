@@ -1,18 +1,14 @@
-import { getCurrentAccount } from "@/app/lib/auth/server";
-import { resolveAppUserId } from "@/app/lib/accounts";
-import { database } from "@/app/lib/database";
-import { normalizePlannerData } from "@/app/lib/normalize-planner-data";
+import { getCurrentAccount } from "@/src/infrastructure/auth/neon-auth-server";
+import { normalizePlannerData } from "@/src/domain/planner/validation/normalize-planner-state";
+import {
+  loadAccountState,
+  saveAccountState,
+} from "@/src/application/state/user-state-service.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_STATE_BYTES = 1_000_000;
-
-type StateRow = {
-  data: unknown;
-  revision: number;
-  updated_at: string;
-};
 
 const json = (body: unknown, init: ResponseInit = {}): Response => {
   const headers = new Headers(init.headers);
@@ -20,68 +16,23 @@ const json = (body: unknown, init: ResponseInit = {}): Response => {
   return Response.json(body, { ...init, headers });
 };
 
-const bodyState = (body: unknown): unknown => {
-  if (!body || typeof body !== "object" || Array.isArray(body)) return undefined;
-  return (body as Record<string, unknown>).data;
-};
-
-const bodyRevision = (body: unknown): number | null => {
-  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
-  const revision = (body as Record<string, unknown>).revision;
-  return typeof revision === "number" &&
-    Number.isSafeInteger(revision) &&
-    revision >= 0
-    ? revision
+const record = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
     : null;
-};
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const logError = (
-  event: "state_load_failed" | "state_save_failed",
-  userId: string,
-  error: unknown,
-): void => {
-  console.error({
-    event,
-    userId,
-    error: errorMessage(error),
-  });
-};
-
 export async function GET(): Promise<Response> {
   try {
     const account = await getCurrentAccount();
-    if (!account) {
-      return json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = await resolveAppUserId(account);
-    const sql = database();
-    const rows = await sql`
-      SELECT data, revision, updated_at::text AS updated_at
-      FROM user_state
-      WHERE user_id = ${userId}::uuid
-      LIMIT 1
-    `;
-    const row = rows[0] as StateRow | undefined;
-
-    if (!row) {
-      return json({ error: "State not found" }, { status: 404 });
-    }
-
-    const data = normalizePlannerData(row.data);
-    if (!data) {
-      throw new Error("Stored state has an unsupported version");
-    }
-
-    return json({
-      data,
-      revision: Number(row.revision),
-      updatedAt: row.updated_at,
-    });
+    if (!account) return json({ error: "Unauthorized" }, { status: 401 });
+    const state = await loadAccountState(account);
+    if (!state) return json({ error: "State not found" }, { status: 404 });
+    return json(state);
   } catch (error) {
-    logError("state_load_failed", "unknown", error);
+    console.error({ event: "state_load_failed", error: errorMessage(error) });
     return json({ error: "Unable to load state" }, { status: 500 });
   }
 }
@@ -99,81 +50,40 @@ export async function PUT(request: Request): Promise<Response> {
     return json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const data = normalizePlannerData(bodyState(body));
-  if (!data) {
-    return json({ error: "Invalid state" }, { status: 400 });
-  }
-  const expectedRevision = bodyRevision(body);
-  if (expectedRevision === null) {
+  const payload = record(body);
+  const data = normalizePlannerData(payload?.data);
+  const revision = payload?.revision;
+  if (!data) return json({ error: "Invalid state" }, { status: 400 });
+  if (
+    typeof revision !== "number" ||
+    !Number.isSafeInteger(revision) ||
+    revision < 0
+  ) {
     return json({ error: "Invalid revision" }, { status: 400 });
   }
-
-  const serialized = JSON.stringify(data);
-  if (new TextEncoder().encode(serialized).byteLength > MAX_STATE_BYTES) {
+  if (
+    new TextEncoder().encode(JSON.stringify(data)).byteLength >
+    MAX_STATE_BYTES
+  ) {
     return json({ error: "State is too large" }, { status: 413 });
   }
 
   try {
     const account = await getCurrentAccount();
-    if (!account) {
-      return json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = await resolveAppUserId(account);
-    const sql = database();
-    const rows = await sql`
-      INSERT INTO user_state (
-        user_id,
-        data,
-        schema_version,
-        revision,
-        updated_at
-      )
-      SELECT
-        ${userId}::uuid,
-        ${serialized}::jsonb,
-        ${data.version},
-        1,
-        now()
-      WHERE ${expectedRevision} = 0
-        OR EXISTS (
-          SELECT 1
-          FROM user_state
-          WHERE user_id = ${userId}::uuid
-            AND revision = ${expectedRevision}
-        )
-      ON CONFLICT (user_id) DO UPDATE SET
-        data = EXCLUDED.data,
-        schema_version = EXCLUDED.schema_version,
-        revision = user_state.revision + 1,
-        updated_at = now()
-      WHERE user_state.revision = ${expectedRevision}
-      RETURNING revision, updated_at::text AS updated_at
-    `;
-    const saved = rows[0] as
-      | { revision: number; updated_at: string }
-      | undefined;
-
-    if (!saved) {
-      const current = await sql`
-        SELECT revision
-        FROM user_state
-        WHERE user_id = ${userId}::uuid
-      `;
+    if (!account) return json({ error: "Unauthorized" }, { status: 401 });
+    const result = await saveAccountState(account, data, revision);
+    if (result.status === "conflict") {
       return json(
-        {
-          error: "State conflict",
-          revision: Number(current[0]?.revision ?? 0),
-        },
+        { error: "State conflict", revision: result.revision },
         { status: 409 },
       );
     }
-
     return json({
-      revision: Number(saved.revision),
-      updatedAt: saved.updated_at,
+      revision: result.revision,
+      updatedAt: result.updatedAt,
     });
   } catch (error) {
-    logError("state_save_failed", "unknown", error);
+    console.error({ event: "state_save_failed", error: errorMessage(error) });
     return json({ error: "Unable to save state" }, { status: 500 });
   }
 }

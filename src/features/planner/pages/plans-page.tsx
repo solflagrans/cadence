@@ -1,0 +1,65 @@
+"use client";
+
+import { useState } from "react";
+import type { PlannerData } from "@/src/domain/planner/model/types";
+import { iso, monthIdForWeek } from "@/src/domain/planner/lib/dates";
+import { dateLabel } from "@/app/lib/data";
+import { navigate } from "@/src/application/navigation/routes";
+import { Badge } from "@/src/shared/ui/badge/badge";
+import { PageHeader } from "@/src/shared/ui/page-header/page-header";
+import { PlanSummary } from "../widgets/plan-summary";
+
+export function PlansPage({ data }: { data: PlannerData }) {
+  const [year, setYear] = useState(new Date().getFullYear());
+  const currentMonth = iso(new Date()).slice(0, 7);
+  const months = Array.from(
+    { length: 12 },
+    (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`,
+  );
+  return (
+    <>
+      <PageHeader
+        title="Планы"
+        actions={
+          <div className="year-switcher">
+            <button onClick={() => setYear((value) => value - 1)}>←</button>
+            <strong>{year}</strong>
+            <button onClick={() => setYear((value) => value + 1)}>→</button>
+          </div>
+        }
+      />
+      <section className="month-grid">
+        {months.map((id) => {
+          const month = data.months.find((entry) => entry.id === id);
+          const extras = data.extraResults.filter(
+            (entry) => monthIdForWeek(entry.weekId) === id,
+          ).length;
+          return (
+            <button
+              key={id}
+              className={`month-card card ${id === currentMonth ? "current" : ""}`}
+              onClick={() => navigate({ page: "month", id })}
+            >
+              <div className="month-card-head">
+                <h2>{dateLabel(`${id}-01`, { month: "long" })}</h2>
+                {id === currentMonth && <Badge tone="blue">Текущий</Badge>}
+              </div>
+              {month ? (
+                <>
+                  <strong className="month-count">{month.items.length}</strong>
+                  <span>направлений</span>
+                  <PlanSummary data={data} month={month} />
+                  {extras > 0 && (
+                    <span className="month-extra">+{extras} результата</span>
+                  )}
+                </>
+              ) : (
+                <span className="month-empty">Нет плана</span>
+              )}
+            </button>
+          );
+        })}
+      </section>
+    </>
+  );
+}

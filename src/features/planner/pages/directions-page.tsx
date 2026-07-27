@@ -1,0 +1,274 @@
+"use client";
+
+import { useState } from "react";
+import type {
+  Direction,
+  PlannerData,
+} from "@/src/domain/planner/model/types";
+import { iso } from "@/src/domain/planner/lib/dates";
+import { itemFact, progress } from "@/src/domain/planner/lib/progress";
+import {
+  formatValue,
+  metricName,
+  monthName,
+} from "@/app/lib/data";
+import { navigate } from "@/src/application/navigation/routes";
+import { Badge } from "@/src/shared/ui/badge/badge";
+import { Button } from "@/src/shared/ui/button/button";
+import { EmptyState } from "@/src/shared/ui/empty-state/empty-state";
+import { PageHeader } from "@/src/shared/ui/page-header/page-header";
+import { ProgressBar } from "@/src/shared/ui/progress-bar/progress-bar";
+import type { ModalState } from "../model/modal-state";
+
+export function DirectionsPage({
+  data,
+  setModal,
+}: {
+  data: PlannerData;
+  setModal: (modal: ModalState) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<
+    "all" | Direction["availability"] | "in-month" | "outside-month"
+  >("all");
+  const month = data.months.find(
+    (item) => item.id === iso(new Date()).slice(0, 7),
+  );
+  const filtered = data.directions
+    .filter((item) => item.name.toLowerCase().includes(query.toLowerCase()))
+    .filter((item) => {
+      if (filter === "all") return true;
+      if (filter === "in-month") {
+        return month?.items.some((plan) => plan.directionId === item.id);
+      }
+      if (filter === "outside-month") {
+        return !month?.items.some((plan) => plan.directionId === item.id);
+      }
+      return item.availability === filter;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+
+  return (
+    <>
+      <PageHeader
+        title="Направления"
+        actions={
+          <Button onClick={() => setModal({ kind: "direction" })}>
+            Новое направление
+          </Button>
+        }
+      />
+      <div className="filter-bar">
+        <input
+          className="search-input"
+          placeholder="Поиск"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <select
+          value={filter}
+          onChange={(event) =>
+            setFilter(event.target.value as typeof filter)
+          }
+        >
+          <option value="all">Все направления</option>
+          <option value="active">Активные</option>
+          <option value="paused">Приостановленные</option>
+          <option value="archived">Архивные</option>
+          <option value="in-month">В текущем месяце</option>
+          <option value="outside-month">Не в текущем месяце</option>
+        </select>
+      </div>
+      <section className="card direction-table">
+        <div className="table-head">
+          <span>Направление</span>
+          <span>Метрика</span>
+          <span>Доступность</span>
+          <span>Текущий месяц</span>
+          <span />
+        </div>
+        {filtered.map((direction) => {
+          const item = month?.items.find(
+            (plan) => plan.directionId === direction.id,
+          );
+          const fact = item ? itemFact(data, item) : 0;
+          return (
+            <div className="table-row" key={direction.id}>
+              <button
+                className="direction-name"
+                onClick={() =>
+                  navigate({ page: "direction", id: direction.id })
+                }
+              >
+                <span
+                  className="direction-dot"
+                  style={{ background: direction.color }}
+                />
+                <strong>{direction.name}</strong>
+              </button>
+              <span>
+                {metricName[direction.metric]}
+                {direction.unit && ` · ${direction.unit}`}
+              </span>
+              <span>
+                <Badge
+                  tone={
+                    direction.availability === "active"
+                      ? "green"
+                      : direction.availability === "paused"
+                        ? "amber"
+                        : "neutral"
+                  }
+                >
+                  {direction.availability === "active"
+                    ? "Активно"
+                    : direction.availability === "paused"
+                      ? "Приостановлено"
+                      : "Архив"}
+                </Badge>
+              </span>
+              <span>
+                {item
+                  ? `${formatValue(fact, item.metric, item.unit)} / ${formatValue(item.target, item.metric, item.unit)}`
+                  : "—"}
+              </span>
+              <button
+                className="more-button"
+                onClick={() => setModal({ kind: "direction", direction })}
+              >
+                ···
+              </button>
+            </div>
+          );
+        })}
+        {!filtered.length && (
+          <EmptyState
+            text={
+              query || filter !== "all"
+                ? "Направления не найдены"
+                : "Нет направлений"
+            }
+            action="Создать направление"
+            onAction={() => setModal({ kind: "direction" })}
+          />
+        )}
+      </section>
+    </>
+  );
+}
+
+export function DirectionDetailsPage({
+  data,
+  id,
+  setModal,
+}: {
+  data: PlannerData;
+  id: string;
+  setModal: (modal: ModalState) => void;
+}) {
+  const direction = data.directions.find((item) => item.id === id);
+  if (!direction) {
+    return (
+      <EmptyState
+        text="Направление не найдено"
+        action="К списку"
+        onAction={() => navigate({ page: "directions" })}
+      />
+    );
+  }
+  const periods = data.months.flatMap((month) => {
+    const item = month.items.find((plan) => plan.directionId === id);
+    if (!item) return [];
+    const fact = itemFact(data, item);
+    return [{
+      month,
+      item,
+      fact,
+      pct: progress(fact, item.target, item.metric),
+    }];
+  });
+
+  return (
+    <>
+      <PageHeader
+        title={direction.name}
+        back={() => navigate({ page: "directions" })}
+        meta={
+          <>
+            <Badge
+              tone={direction.availability === "active" ? "green" : "amber"}
+            >
+              {direction.availability === "active"
+                ? "Активно"
+                : "Приостановлено"}
+            </Badge>
+            <span>
+              {metricName[direction.metric]}
+              {direction.unit && ` · ${direction.unit}`}
+            </span>
+          </>
+        }
+        actions={
+          <Button
+            variant="secondary"
+            onClick={() => setModal({ kind: "direction", direction })}
+          >
+            Изменить
+          </Button>
+        }
+      />
+      <div className="stats-grid">
+        <div className="stat-card card">
+          <span>Периодов с планом</span><strong>{periods.length}</strong>
+        </div>
+        <div className="stat-card card">
+          <span>Выполнено</span>
+          <strong>{periods.filter((item) => item.pct >= 100).length}</strong>
+        </div>
+        <div className="stat-card card">
+          <span>Приостановок</span>
+          <strong>
+            {periods.filter((item) => item.item.paused).length}
+          </strong>
+        </div>
+      </div>
+      <section className="card">
+        <div className="section-head"><h2>Планы по месяцам</h2></div>
+        {periods.length ? (
+          <div className="analytics-list">
+            {periods.map(({ month, item, fact, pct }) => (
+              <button
+                key={month.id}
+                onClick={() => navigate({ page: "month", id: month.id })}
+              >
+                <strong>{monthName(month.id)}</strong>
+                <ProgressBar value={pct} color={direction.color} />
+                <span>
+                  {formatValue(fact, item.metric, item.unit)} /{" "}
+                  {formatValue(item.target, item.metric, item.unit)}
+                </span>
+                <strong>{pct}%</strong>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="compact-empty">Нет аналитики</p>
+        )}
+      </section>
+      <section className="card">
+        <div className="section-head"><h2>История метрики</h2></div>
+        <div className="history-list">
+          {direction.metricHistory.map((entry, index) => (
+            <div key={`${entry.since}-${index}`}>
+              <span>{monthName(entry.since)}</span>
+              <strong>
+                {metricName[entry.metric]}
+                {entry.unit && ` · ${entry.unit}`}
+              </strong>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}

@@ -1,5 +1,5 @@
 import PlannerApp from "./planner-app";
 
 export default function Home() {
-  return <PlannerApp />;
+  return <PlannerApp initialRoute={{ page: "overview" }} />;
 }

@@ -1,4 +1,4 @@
-import { getAuthServer } from "@/app/lib/auth/server";
+import { getAuthServer } from "@/src/infrastructure/auth/neon-auth-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -19,10 +19,32 @@ const migrationFiles = (await readdir(migrationsDirectory))
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
+await sql`
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )
+`;
+
+const appliedRows = await sql`SELECT version FROM schema_migrations`;
+const applied = new Set(appliedRows.map((row) => row.version));
+
 for (const file of migrationFiles) {
+  if (applied.has(file)) {
+    console.log(`Skipped ${file}`);
+    continue;
+  }
   const migration = await readFile(new URL(file, migrationsDirectory), "utf8");
   try {
-    await sql.query(migration);
+    await sql.transaction((tx) => [
+      tx`SELECT pg_advisory_xact_lock(hashtextextended('cadence-migrations', 0))`,
+      tx.query(migration),
+      tx`
+        INSERT INTO schema_migrations (version)
+        VALUES (${file})
+        ON CONFLICT (version) DO NOTHING
+      `,
+    ]);
     console.log(`Applied ${file}`);
   } catch (error) {
     console.error(`Failed to apply ${file}`, {
