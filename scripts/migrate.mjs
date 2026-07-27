@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { neon } from "@neondatabase/serverless";
 
 const connectionString = process.env.DATABASE_URL;
@@ -14,11 +14,26 @@ if (!connectionString) {
 }
 
 const sql = neon(connectionString);
-const migration = await readFile(
-  new URL("../migrations/0001_create_user_state.sql", import.meta.url),
-  "utf8",
-);
+const migrationsDirectory = new URL("../migrations/", import.meta.url);
+const migrationFiles = (await readdir(migrationsDirectory))
+  .filter((file) => file.endsWith(".sql"))
+  .sort();
 
-await sql.query(migration);
+for (const file of migrationFiles) {
+  const migration = await readFile(new URL(file, migrationsDirectory), "utf8");
+  try {
+    await sql.query(migration);
+    console.log(`Applied ${file}`);
+  } catch (error) {
+    console.error(`Failed to apply ${file}`, {
+      message: error instanceof Error ? error.message : String(error),
+      code: error?.code,
+      detail: error?.detail,
+      hint: error?.hint,
+      position: error?.position,
+    });
+    throw error;
+  }
+}
 
 console.log("Neon migrations applied.");
