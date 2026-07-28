@@ -306,7 +306,13 @@
 .row-title-line strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-progress { width: min(210px, 100%); }
 .progress-track { width: 100%; height: 5px; border-radius: 99px; overflow: hidden; background: var(--line); }
-.progress-track span { height: 100%; display: block; border-radius: inherit; background: var(--accent); }
+.progress-track span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width .2s ease;
+}
 .row-value { min-width: 95px; display: flex; flex-direction: column; text-align: right; }
 .row-value strong { font-size: 13px; }
 .row-value span { color: var(--muted); font-size: 11px; }
@@ -484,7 +490,6 @@
 .field > span { color: var(--muted); font-size: 12px; font-weight: 560; }
 .field input, .field select, .segment-editor select, .segment-editor input, .break-editor input, .plan-editor select, .plan-editor input { width: 100%; height: 44px; border-radius: 9px; padding: 0 12px; outline: none; }
 .field input:focus, .field select:focus, .segment-editor select:focus, .segment-editor input:focus, .break-editor input:focus, .plan-editor select:focus, .plan-editor input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.field input[type="color"] { padding: 4px; }
 .field-full { grid-column: 1 / -1; }
 .checkbox-field { flex-direction: row; align-items: center; padding-top: 24px; }
 .checkbox-field input { width: 17px; height: 17px; }
@@ -530,13 +535,13 @@
 
 .toast { position: fixed; z-index: 150; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 10px 15px; border-radius: 9px; color: #fff; background: #252722; box-shadow: 0 8px 35px rgba(0,0,0,.2); animation: toast-in .22s ease; }
 
-:root[data-density="compact"] .card { padding: 16px; }
-:root[data-density="compact"] .plan-row, :root[data-density="compact"] .table-row { min-height: 56px; }
-
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes modal-up { from { opacity: 0; transform: translateY(12px) scale(.99); } }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
 @keyframes save-pulse { to { opacity: .3; } }
+@keyframes modal-down { to { opacity: 0; transform: translateY(8px) scale(.995); } }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes row-in { from { opacity: 0; transform: translateY(5px); } }
 
 @media (min-width: 1600px) {
   .month-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }

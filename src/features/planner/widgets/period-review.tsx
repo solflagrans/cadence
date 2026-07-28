@@ -20,6 +20,7 @@ export function PeriodReview({
   status,
   update,
   onPlanNext,
+  canPlanNext,
 }: {
   data: PlannerData;
   scope: "month" | "week";
@@ -29,6 +30,7 @@ export function PeriodReview({
   status: string;
   update: PlannerUpdate;
   onPlanNext: () => void;
+  canPlanNext: boolean;
 }) {
   const existing = data.reviews.find(
     (item) => item.scope === scope && item.periodId === periodId,
@@ -107,16 +109,18 @@ export function PeriodReview({
           rows={3}
         />
       </label>
-      <div className="review-actions">
-        <Button
-          size="small"
-          variant="secondary"
-          trailingIcon="arrow-right"
-          onClick={onPlanNext}
-        >
-          Запланировать следующий {scope === "month" ? "месяц" : "период"}
-        </Button>
-      </div>
+      {canPlanNext && (
+        <div className="review-actions">
+          <Button
+            size="small"
+            variant="secondary"
+            trailingIcon="arrow-right"
+            onClick={onPlanNext}
+          >
+            Запланировать следующий {scope === "month" ? "месяц" : "период"}
+          </Button>
+        </div>
+      )}
     </section>
   );
 }

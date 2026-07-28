@@ -1,6 +1,13 @@
 "use client";
 
-import { type ReactNode, useEffect, useId, useRef } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { IconButton } from "../icon-button/icon-button";
 
 export function Modal({
@@ -16,10 +23,19 @@ export function Modal({
 }) {
   const titleId = useId();
   const dialogRef = useRef<HTMLElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closingRef = useRef(false);
+  const [closing, setClosing] = useState(false);
+  const requestClose = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setClosing(true);
+    closeTimer.current = setTimeout(onClose, 160);
+  }, [onClose]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") requestClose();
       if (event.key !== "Tab" || !dialogRef.current) return;
       const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
         'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
@@ -44,13 +60,17 @@ export function Modal({
         ?.focus();
     });
     return () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handler);
     };
-  }, [onClose]);
+  }, [requestClose]);
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <div
+      className={`modal-backdrop ${closing ? "closing" : ""}`}
+      onMouseDown={requestClose}
+    >
       <section
         ref={dialogRef}
         className={`modal ${wide ? "modal-wide" : ""}`}
@@ -61,7 +81,7 @@ export function Modal({
       >
         <header className="modal-header">
           <h2 id={titleId}>{title}</h2>
-          <IconButton icon="x" label="Закрыть" onClick={onClose} />
+          <IconButton icon="x" label="Закрыть" onClick={requestClose} />
         </header>
         <div className="modal-body">{children}</div>
       </section>

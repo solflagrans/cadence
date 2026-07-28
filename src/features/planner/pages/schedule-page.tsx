@@ -11,6 +11,11 @@ import {
   parseDate,
   startOfWeek,
 } from "@/src/domain/planner/lib/dates";
+import {
+  archiveActivityType,
+  deleteActivityType,
+  restoreActivityType,
+} from "@/src/domain/planner/commands/activity-types";
 import { dateLabel } from "@/app/lib/data";
 import type { PlannerUpdate } from "@/src/application/planner/planner-provider";
 import { Button } from "@/src/shared/ui/button/button";
@@ -19,15 +24,46 @@ import { PageHeader } from "@/src/shared/ui/page-header/page-header";
 import { SegmentedBar } from "@/src/widgets/schedule/segmented-bar";
 import type { ModalState } from "../model/modal-state";
 import { Icon } from "@/src/shared/ui/icon/icon";
+import { IconButton } from "@/src/shared/ui/icon-button/icon-button";
+
+const MONTHS = Array.from({ length: 12 }, (_, month) =>
+  new Intl.DateTimeFormat("ru-RU", { month: "long" }).format(
+    new Date(2026, month, 1),
+  ),
+);
+
+const rangeTitle = (start: Date, end: Date) => {
+  if (
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth()
+  ) {
+    return new Intl.DateTimeFormat("ru-RU", {
+      month: "long",
+      year: "numeric",
+    }).format(start);
+  }
+  const includeStartYear = start.getFullYear() !== end.getFullYear();
+  return `${dateLabel(iso(start), {
+    day: "numeric",
+    month: "short",
+    ...(includeStartYear ? { year: "numeric" } : {}),
+  })} — ${dateLabel(iso(end), {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  })}`;
+};
 
 export function SchedulePage({
   data,
   update,
   setModal,
+  editingDate,
 }: {
   data: PlannerData;
   update: PlannerUpdate;
   setModal: (modal: ModalState) => void;
+  editingDate?: string;
 }) {
   const [mode, setMode] = useState<"calendar" | "types">(() =>
     typeof window !== "undefined" &&
@@ -49,7 +85,25 @@ export function SchedulePage({
   const [selected, setSelected] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
   const [copied, setCopied] = useState<DayPlan["segments"] | null>(null);
-  const start = startOfWeek(new Date());
+  const [activityView, setActivityView] = useState<"active" | "archive">(
+    "active",
+  );
+  const [anchor, setAnchor] = useState(() => {
+    if (typeof window === "undefined") return new Date();
+    const value = new URLSearchParams(window.location.search).get("date");
+    return value && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? parseDate(value)
+      : new Date();
+  });
+  const activeActivityTypes = data.activityTypes.filter(
+    (activity) => !activity.archived,
+  );
+  const start = startOfWeek(anchor);
+  const end = addDays(start, range - 1);
+  const years = Array.from(
+    { length: 41 },
+    (_, index) => new Date().getFullYear() - 20 + index,
+  );
   const visibleDays = Array.from({ length: range }, (_, index) => {
     const date = iso(addDays(start, index));
     return data.days.find((item) => item.date === date) ?? {
@@ -68,13 +122,16 @@ export function SchedulePage({
     } else {
       params.delete("range");
     }
+    const today = iso(new Date());
+    if (iso(anchor) !== today) params.set("date", iso(anchor));
+    else params.delete("date");
     const search = params.toString();
     window.history.replaceState(
       {},
       "",
       `${window.location.pathname}${search ? `?${search}` : ""}`,
     );
-  }, [mode, range, data.settings.scheduleRange]);
+  }, [mode, range, anchor, data.settings.scheduleRange]);
 
   const changeRange = (value: 14 | 21 | 30) => {
     setRange(value);
@@ -112,16 +169,16 @@ export function SchedulePage({
             icon="plus"
             onClick={() =>
               setModal(
-                !data.activityTypes.length
+                !activeActivityTypes.length
                   ? { kind: "activity" }
-                  : {
+                    : {
                       kind: "day",
-                      date: selected[0] ?? iso(new Date()),
+                      date: iso(anchor),
                     },
               )
             }
           >
-            {!data.activityTypes.length
+            {!activeActivityTypes.length
               ? "Новый тип"
               : "Изменить день"}
           </Button>
@@ -143,10 +200,67 @@ export function SchedulePage({
       </div>
       {mode === "calendar" ? (
         <>
-          {!!data.activityTypes.length && (
+          <div className="schedule-period-nav">
+            <div className="schedule-period-title">
+              <IconButton
+                icon="chevron-left"
+                label="Предыдущий период"
+                onClick={() => setAnchor((value) => addDays(value, -range))}
+              />
+              <strong>{rangeTitle(start, end)}</strong>
+              <IconButton
+                icon="chevron-right"
+                label="Следующий период"
+                onClick={() => setAnchor((value) => addDays(value, range))}
+              />
+            </div>
+            <div className="schedule-date-jump">
+              <select
+                aria-label="Месяц графика"
+                value={anchor.getMonth()}
+                onChange={(event) =>
+                  setAnchor(
+                    new Date(
+                      anchor.getFullYear(),
+                      Number(event.target.value),
+                      1,
+                    ),
+                  )
+                }
+              >
+                {MONTHS.map((month, index) => (
+                  <option key={month} value={index}>
+                    {month}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Год графика"
+                value={anchor.getFullYear()}
+                onChange={(event) =>
+                  setAnchor(
+                    new Date(
+                      Number(event.target.value),
+                      anchor.getMonth(),
+                      1,
+                    ),
+                  )
+                }
+              >
+                {years.map((year) => <option key={year}>{year}</option>)}
+              </select>
+              <Button
+                size="small"
+                variant="secondary"
+                onClick={() => setAnchor(new Date())}
+              >
+                Сегодня
+              </Button>
+            </div>
+          </div>
+          {!!activeActivityTypes.length && (
             <div className="schedule-legend" aria-label="Типы деятельности">
-              {data.activityTypes
-                .filter((item) => !item.archived)
+              {activeActivityTypes
                 .sort((a, b) => a.order - b.order)
                 .map((activity) => (
                   <span key={activity.id}>
@@ -227,14 +341,14 @@ export function SchedulePage({
           <section className="calendar-grid">
             {visibleDays.map((day) => {
               const isSelected = selected.includes(day.date);
+              const isEditing = editingDate === day.date;
               return (
                 <button
                   key={day.date}
-                  className={`calendar-day card ${isSelected ? "selected" : ""} ${day.date === iso(new Date()) ? "today" : ""}`}
+                  className={`calendar-day card ${isSelected ? "selected" : ""} ${isEditing ? "editing" : ""} ${day.date === iso(new Date()) ? "today" : ""}`}
                   onPointerUp={(event) => event.currentTarget.blur()}
                   onClick={() => {
                     if (!selectionMode) {
-                      setSelected([day.date]);
                       setModal({ kind: "day", date: day.date });
                       return;
                     }
@@ -282,10 +396,7 @@ export function SchedulePage({
       ) : (
         <section className="card activity-types-panel">
           <div className="activity-types-head">
-            <div>
-              <h2>Типы деятельности</h2>
-              <p>Категории, из которых складывается состав дня в графике.</p>
-            </div>
+            <h2>Типы деятельности</h2>
             <Button
               icon="plus"
               size="small"
@@ -294,8 +405,31 @@ export function SchedulePage({
               Создать тип
             </Button>
           </div>
+          <div className="activity-view-tabs" role="tablist">
+            <button
+              role="tab"
+              aria-selected={activityView === "active"}
+              className={activityView === "active" ? "active" : ""}
+              onClick={() => setActivityView("active")}
+            >
+              Активные
+            </button>
+            <button
+              role="tab"
+              aria-selected={activityView === "archive"}
+              className={activityView === "archive" ? "active" : ""}
+              onClick={() => setActivityView("archive")}
+            >
+              Архив
+            </button>
+          </div>
           <div className="type-list">
             {[...data.activityTypes]
+              .filter((activity) =>
+                activityView === "archive"
+                  ? activity.archived
+                  : !activity.archived,
+              )
               .sort((a, b) => a.order - b.order)
               .map((activity) => (
                 <div className="activity-type-row" key={activity.id}>
@@ -305,23 +439,87 @@ export function SchedulePage({
                   />
                   <div>
                     <strong>{activity.name}</strong>
-                    <span>{activity.archived ? "В архиве" : "Активный тип"}</span>
                   </div>
-                  <button
-                    className="text-link"
-                    onClick={() => setModal({ kind: "activity", activity })}
-                  >
-                    <Icon name="edit" size={15} /> Изменить
-                  </button>
+                  <div className="activity-type-actions">
+                    {activity.archived ? (
+                      <>
+                        <Button
+                          size="small"
+                          variant="secondary"
+                          onClick={() =>
+                            update(
+                              (current) =>
+                                restoreActivityType(current, activity.id),
+                              "Тип восстановлен",
+                            )
+                          }
+                        >
+                          Восстановить
+                        </Button>
+                        <IconButton
+                          icon="trash"
+                          size="small"
+                          label={`Удалить навсегда: ${activity.name}`}
+                          onClick={() =>
+                            setModal({
+                              kind: "confirm",
+                              title: "Удалить тип деятельности навсегда?",
+                              message:
+                                "Действие необратимо. Тип будет удалён из всех дней графика, включая историю. Распределение оставшихся типов будет пересчитано до 100%.",
+                              confirmLabel: "Удалить навсегда",
+                              tone: "danger",
+                              onConfirm: () =>
+                                update(
+                                  (current) =>
+                                    deleteActivityType(current, activity.id),
+                                  "Тип удалён навсегда",
+                                ),
+                            })
+                          }
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          className="text-link"
+                          onClick={() =>
+                            setModal({ kind: "activity", activity })
+                          }
+                        >
+                          Изменить
+                        </button>
+                        <button
+                          className="text-link"
+                          onClick={() =>
+                            update(
+                              (current) =>
+                                archiveActivityType(current, activity.id),
+                              "Тип перемещён в архив",
+                            )
+                          }
+                        >
+                          В архив
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               ))}
-            {!data.activityTypes.length && (
+            {!data.activityTypes.some((activity) =>
+              activityView === "archive"
+                ? activity.archived
+                : !activity.archived,
+            ) && (
               <EmptyState
                 icon="activity"
-                title="Пока нет типов деятельности"
-                text="Создайте первую категорию, чтобы распределять время между занятиями."
-                action="Создать тип"
-                onAction={() => setModal({ kind: "activity" })}
+                title={activityView === "archive" ? "Архив пуст" : "Пока нет типов деятельности"}
+                text={activityView === "archive" ? "Архивных типов нет" : "Создайте первый тип деятельности"}
+                action={activityView === "archive" ? "К активным" : "Создать тип"}
+                onAction={() =>
+                  activityView === "archive"
+                    ? setActivityView("active")
+                    : setModal({ kind: "activity" })
+                }
               />
             )}
           </div>

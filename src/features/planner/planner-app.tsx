@@ -62,6 +62,8 @@ import { PageHeader } from "@/src/shared/ui/page-header/page-header";
 import { SaveIndicator } from "@/src/widgets/save-indicator/save-indicator";
 import { Icon, type IconName } from "@/src/shared/ui/icon/icon";
 import { IconButton } from "@/src/shared/ui/icon-button/icon-button";
+import { ColorPicker } from "@/src/shared/ui/color-picker/color-picker";
+import { NumericInput } from "@/src/shared/ui/numeric-input/numeric-input";
 import { SegmentedBar } from "@/src/widgets/schedule/segmented-bar";
 import {
   navigate,
@@ -72,6 +74,12 @@ import { PlanRows } from "./widgets/plan-rows";
 import { PlanSummary } from "./widgets/plan-summary";
 import { TodayPlan } from "./widgets/today-plan";
 import { PeriodReview } from "./widgets/period-review";
+import { normalizePercentValues } from "@/src/domain/planner/lib/percentages";
+import {
+  pausePlanItem,
+  resumePlanItem,
+} from "@/src/domain/planner/commands/plan-items";
+import { suggestedPlanTarget } from "@/src/domain/planner/lib/plan-targets";
 import { PlansPage } from "./pages/plans-page";
 import { SettingsPage } from "./pages/settings-page";
 import { SchedulePage } from "./pages/schedule-page";
@@ -270,7 +278,12 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
             <WeekPage data={data} weekId={route.id} update={update} setModal={setModal} />
           )}
           {route.page === "schedule" && (
-            <SchedulePage data={data} update={update} setModal={setModal} />
+            <SchedulePage
+              data={data}
+              update={update}
+              setModal={setModal}
+              editingDate={modal?.kind === "day" ? modal.date : undefined}
+            />
           )}
           {route.page === "directions" && (
             <DirectionsPage data={data} setModal={setModal} />
@@ -507,8 +520,6 @@ function Overview({ data, setModal }: { data: PlannerData; setModal: (m: ModalSt
   const attention = [
     !month && { text: "Текущий месяц не запланирован", action: () => navigate({ page: "month", id: monthId }) },
     !week && { text: "Текущая неделя не запланирована", action: () => navigate({ page: "week", id: weekId }) },
-    selectedDay?.segments.length > 0 &&
-      !selectedDay.workStart && { text: "Не указан рабочий период", action: () => setModal({ kind: "work", date: selectedDay.date }) },
   ].filter(Boolean) as { text: string; action: () => void }[];
 
   return (
@@ -661,7 +672,7 @@ function Today({
               {day.workStart ? "Изменить" : "Добавить"}
             </button>
           </div>
-          {day.workStart && day.workEnd ? (
+          {day.workStart && day.workEnd && (
             <>
               <div className="time-range">
                 <strong>{day.workStart}</strong><span>—</span><strong>{day.workEnd}</strong>
@@ -677,8 +688,6 @@ function Today({
                 <span>Итого <strong>{formatMinutes(minutes.net)}</strong></span>
               </div>
             </>
-          ) : (
-            <EmptyState icon="schedule" title="Рабочий период не указан" text="Укажите начало, окончание и перерывы рабочего дня." action="Добавить период" onAction={() => setModal({ kind: "work", date: today })} />
           )}
         </section>
         <section className="card">
@@ -734,6 +743,7 @@ function MonthPage({
   const extras = data.extraResults.filter((item) => monthIdForWeek(item.weekId) === monthId);
   const prev = new Date(base.getFullYear(), base.getMonth() - 1, 1);
   const next = new Date(base.getFullYear(), base.getMonth() + 1, 1);
+  const nextMonthId = iso(next).slice(0, 7);
   return (
     <>
       <PageHeader
@@ -785,9 +795,8 @@ function MonthPage({
           items={month.items}
           status={periodStatus(monthId, "month")}
           update={update}
-          onPlanNext={() =>
-            setModal({ kind: "month-plan", monthId: iso(next).slice(0, 7) })
-          }
+          canPlanNext={!data.months.some((item) => item.id === nextMonthId)}
+          onPlanNext={() => setModal({ kind: "month-plan", monthId: nextMonthId })}
         />
       )}
       <section className="card extras-card">
@@ -833,6 +842,7 @@ function WeekPage({
 }) {
   const week = data.weeks.find((item) => item.id === weekId);
   const monthId = monthIdForWeek(weekId);
+  const nextWeekId = iso(addDays(parseDate(weekId), 7));
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = iso(addDays(parseDate(weekId), index));
     return data.days.find((item) => item.date === date) ?? { date, segments: [], breaks: [] };
@@ -880,11 +890,9 @@ function WeekPage({
           items={week.items}
           status={periodStatus(weekId, "week")}
           update={update}
+          canPlanNext={!data.weeks.some((item) => item.id === nextWeekId)}
           onPlanNext={() =>
-            setModal({
-              kind: "week-plan",
-              weekId: iso(addDays(parseDate(weekId), 7)),
-            })
+            setModal({ kind: "week-plan", weekId: nextWeekId })
           }
         />
       )}
@@ -1027,6 +1035,7 @@ function DirectionForm({
     return nextUnit.trim() || "раз";
   };
   const [name, setName] = useState(direction?.name ?? "");
+  const [description, setDescription] = useState(direction?.description ?? "");
   const [metric, setMetric] = useState<MetricType>(direction?.metric ?? "count");
   const [unit, setUnit] = useState(
     normalizeUnit(direction?.metric ?? "count", direction?.unit ?? "раз"),
@@ -1046,6 +1055,7 @@ function DirectionForm({
         return updateDirection(current, {
           ...nextDirection,
           name: name.trim(),
+          description: description.trim() || undefined,
           metric,
           unit: savedUnit,
           color,
@@ -1058,6 +1068,7 @@ function DirectionForm({
       return addDirection(current, {
         id: uid("direction"),
         name: name.trim(),
+        description: description.trim() || undefined,
         metric,
         unit: savedUnit,
         color,
@@ -1112,6 +1123,14 @@ function DirectionForm({
     <Modal title={direction ? "Изменить направление" : "Новое направление"} onClose={close}>
       <form onSubmit={submit} className="form-grid">
         <label className="field field-full"><span>Название</span><input autoFocus value={name} onChange={(e) => setName(e.target.value)} required /></label>
+        <label className="field field-full">
+          <span>Описание</span>
+          <textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            rows={3}
+          />
+        </label>
         <label className="field"><span>Метрика</span><select value={metric} onChange={(e) => {
           const nextMetric = e.target.value as MetricType;
           setMetric(nextMetric);
@@ -1122,8 +1141,8 @@ function DirectionForm({
         }}>{Object.entries(metricName).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         {metric === "count" && <label className="field"><span>Единица</span><input value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
         {metric === "duration" && <label className="field"><span>Единица</span><select value={savedUnit} onChange={(e) => setUnit(e.target.value)}><option value="ч.">ч.</option><option value="мин.">мин.</option></select></label>}
-        <label className="field"><span>Цвет</span><input type="color" value={color} onChange={(e) => setColor(e.target.value)} /></label>
-        {direction && !direction.deletedAt && <label className="field"><span>Доступность</span><select value={availability} onChange={(e) => setAvailability(e.target.value as Direction["availability"])}><option value="active">Активно — доступно для новых планов</option><option value="paused">Приостановлено — временно не предлагать</option><option value="archived">Архив — сохранить историю</option></select></label>}
+        <ColorPicker value={color} onChange={setColor} />
+        {direction && !direction.deletedAt && <label className="field"><span>Доступность</span><select value={availability} onChange={(e) => setAvailability(e.target.value as Direction["availability"])}><option value="active">Активно</option><option value="paused">Приостановлено</option><option value="archived">Архив</option></select></label>}
         {direction?.deletedAt && (
           <p className="inline-message inline-message-error field-full">
             <Icon name="trash" size={16} />
@@ -1158,7 +1177,6 @@ function ActivityForm({
 }) {
   const [name, setName] = useState(activity?.name ?? "");
   const [color, setColor] = useState(activity?.color ?? "#4f7bd8");
-  const [archived, setArchived] = useState(activity?.archived ?? false);
   return (
     <Modal title={activity ? "Изменить тип деятельности" : "Новый тип деятельности"} onClose={close}>
       <form className="form-grid" onSubmit={(event) => {
@@ -1167,14 +1185,13 @@ function ActivityForm({
         update((current) => ({
           ...current,
           activityTypes: activity
-            ? current.activityTypes.map((item) => item.id === activity.id ? { ...item, name: name.trim(), color, archived } : item)
+            ? current.activityTypes.map((item) => item.id === activity.id ? { ...item, name: name.trim(), color } : item)
             : [...current.activityTypes, { id: uid("activity"), name: name.trim(), color, icon: "circle", order: current.activityTypes.length + 1, archived: false }],
         }), activity ? "Тип обновлён" : "Тип создан");
         close();
       }}>
         <label className="field field-full"><span>Название</span><input autoFocus required value={name} onChange={(e) => setName(e.target.value)} /></label>
-        <label className="field"><span>Цвет</span><input type="color" value={color} onChange={(e) => setColor(e.target.value)} /></label>
-        {activity && <label className="field checkbox-field"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /><span>В архиве</span></label>}
+        <ColorPicker value={color} onChange={setColor} />
         <div className="modal-actions field-full"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button>Сохранить</Button></div>
       </form>
     </Modal>
@@ -1197,6 +1214,7 @@ function DayForm({
     current?.segments.length ? current.segments.map((item) => ({ ...item })) : [{ activityId: data.activityTypes.find((item) => !item.archived)?.id ?? "", percent: 100 }],
   );
   const total = segments.reduce((sum, item) => sum + item.percent, 0);
+  const totalIsValid = Math.abs(total - 100) < 0.001;
   const activeTypes = data.activityTypes.filter((item) => !item.archived);
   const hasDuplicates =
     new Set(segments.map((item) => item.activityId)).size !== segments.length;
@@ -1215,7 +1233,7 @@ function DayForm({
       <form onSubmit={(event) => {
         event.preventDefault();
         if (
-          total !== 100 ||
+          !totalIsValid ||
           hasDuplicates ||
           segments.some((item) => item.percent <= 0)
         ) return;
@@ -1246,7 +1264,25 @@ function DayForm({
                     </option>
                   ))}
               </select>
-              <div className="percent-input"><input type="number" min="1" max="100" value={segment.percent} onChange={(e) => setSegments((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, percent: Number(e.target.value) } : item))} /><span>%</span></div>
+              <div className="percent-input">
+                <NumericInput
+                  aria-label="Доля типа деятельности"
+                  min={0}
+                  max={100}
+                  required
+                  value={segment.percent}
+                  onValueChange={(value) =>
+                    setSegments((items) =>
+                      items.map((item, itemIndex) =>
+                        itemIndex === index
+                          ? { ...item, percent: value }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+                <span>%</span>
+              </div>
               <IconButton type="button" icon="x" label="Удалить сегмент" disabled={segments.length === 1} onClick={() => setSegments((items) => items.filter((_, itemIndex) => itemIndex !== index))} />
             </div>
           ))}
@@ -1265,10 +1301,33 @@ function DayForm({
         >
           <Icon name="plus" size={15} />Добавить сегмент
         </button>
-        <div className={`sum-line ${total === 100 ? "valid" : "invalid"}`}><span>Сумма</span><strong>{total}%</strong></div>
-        {total !== 100 && <p className="form-error">Сумма должна составлять 100%</p>}
+        <div className={`sum-line ${totalIsValid ? "valid" : "invalid"}`}><span>Сумма</span><strong>{total}%</strong></div>
+        {!totalIsValid && (
+          <div className="normalize-row">
+            <p className="form-error">Сумма должна составлять 100%</p>
+            <Button
+              type="button"
+              size="small"
+              variant="secondary"
+              disabled={total <= 0}
+              onClick={() => {
+                const normalized = normalizePercentValues(
+                  segments.map((item) => item.percent),
+                );
+                setSegments((items) =>
+                  items.map((item, index) => ({
+                    ...item,
+                    percent: normalized[index],
+                  })),
+                );
+              }}
+            >
+              Нормализовать до 100%
+            </Button>
+          </div>
+        )}
         {hasDuplicates && <p className="form-error">Каждый тип деятельности можно добавить только один раз</p>}
-        <div className="modal-actions"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button disabled={total !== 100 || hasDuplicates}>Сохранить</Button></div>
+        <div className="modal-actions"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button disabled={!totalIsValid || hasDuplicates}>Сохранить</Button></div>
       </form>
     </Modal>
   );
@@ -1421,7 +1480,7 @@ function FactForm({
           ) : (
             <label className="field">
               <span>{item?.metric === "percent" ? "Текущий процент" : "Добавить"}{item?.unit && `, ${item.unit}`}</span>
-              <input type="number" min="0.1" step="0.1" value={value} onChange={(e) => setValue(Number(e.target.value))} required />
+              <NumericInput min={0.1} value={value} onValueChange={setValue} required />
             </label>
           )}
           <label className="field"><span>Дата</span><input type="date" min={weekId} max={iso(addDays(parseDate(weekId), 6))} value={date} onChange={(e) => setDate(e.target.value)} required /></label>
@@ -1506,7 +1565,7 @@ function ExtraForm({
         <label className="field field-full"><span>Название результата</span><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} required /></label>
         <label className="field"><span>Метрика</span><select value={metric} onChange={(e) => setMetric(e.target.value as MetricType)}>{Object.entries(metricName).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         {metric !== "checkbox" && metric !== "percent" && <label className="field"><span>Единица</span><input value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
-        {metric !== "checkbox" && <label className="field"><span>Значение</span><input type="number" min="0.1" step="0.1" value={value} onChange={(e) => setValue(Number(e.target.value))} /></label>}
+        {metric !== "checkbox" && <label className="field"><span>Значение</span><NumericInput min={0.1} value={value} onValueChange={setValue} required /></label>}
         <label className="field"><span>Дата</span><input type="date" min={weekId} max={iso(addDays(parseDate(weekId), 6))} value={date} onChange={(e) => setDate(e.target.value)} required /></label>
         <div className="modal-actions field-full">
           {existing && (
@@ -1603,18 +1662,18 @@ function PlanForm({
       : data.weeks.find((item) => item.id === previousId);
   const suggestedTarget = (directionId: string) => {
     const metric = metricForDirection(directionId).metric;
-    if (metric === "checkbox") return 1;
     const previous = previousPlan?.items.find(
       (item) => item.directionId === directionId,
     );
-    if (previous) return previous.target;
-    if (scope === "week") {
-      const monthItem = month?.items.find(
-        (item) => item.directionId === directionId,
-      );
-      if (monthItem) return Math.max(1, Number((monthItem.target / 4).toFixed(1)));
-    }
-    return metric === "percent" ? 100 : 1;
+    const monthItem = month?.items.find(
+      (item) => item.directionId === directionId,
+    );
+    return suggestedPlanTarget({
+      metric,
+      scope,
+      previousTarget: previous?.target,
+      monthTarget: monthItem?.target,
+    });
   };
   const [rows, setRows] = useState<{ directionId: string; target: number }[]>(
     existing?.items.map((item) => ({
@@ -1640,7 +1699,13 @@ function PlanForm({
     if (!previousPlan) return;
     const next = previousPlan.items.flatMap((item) =>
       candidates.some((candidate) => candidate.id === item.directionId)
-        ? [{ directionId: item.directionId, target: item.target }]
+        ? [{
+            directionId: item.directionId,
+            target:
+              item.target > 0
+                ? item.target
+                : suggestedTarget(item.directionId),
+          }]
         : [],
     );
     setRows(next);
@@ -1815,17 +1880,15 @@ function PlanForm({
                       {rowMetric.metric === "checkbox" ? (
                         <span className="checkbox-plan-target">Отметка</span>
                       ) : (
-                        <input
+                        <NumericInput
                           aria-label={`План: ${direction?.name}`}
-                          type="number"
-                          min="0.1"
-                          step="0.1"
+                          min={0.1}
                           value={row.target}
-                          onChange={(event) =>
+                          onValueChange={(value) =>
                             setRows((items) =>
                               items.map((item, itemIndex) =>
                                 itemIndex === index
-                                  ? { ...item, target: Number(event.target.value) }
+                                  ? { ...item, target: value }
                                   : item,
                               ),
                             )
@@ -1987,7 +2050,7 @@ function EditItemForm({
         {planMetric.metric === "checkbox" ? (
           <div className="calculation-box"><span>План <strong>Отметка</strong></span></div>
         ) : (
-          <label className="field"><span>План, {planMetric.metric === "percent" ? "%" : planMetric.unit || metricName[planMetric.metric].toLowerCase()}</span><input type="number" min="0.1" step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
+          <label className="field"><span>План, {planMetric.metric === "percent" ? "%" : planMetric.unit || metricName[planMetric.metric].toLowerCase()}</span><NumericInput min={0.1} value={target} onValueChange={setTarget} required /></label>
         )}
         {periodStatus(planId, scope) !== (scope === "month" ? "Будущий" : "Будущая") && (
           <p className="plan-change-note">
@@ -2002,23 +2065,7 @@ function EditItemForm({
               const currentPlan = findPlan(current, scope, planId)!;
               return replaceItem(current, currentPlan.items.map((entry) => {
                 if (entry.id !== itemId) return entry;
-                const restoredTarget = entry.originalTarget;
-                return {
-                  ...entry,
-                  target: restoredTarget,
-                  paused: undefined,
-                  history: entry.target !== restoredTarget
-                    ? [
-                        ...entry.history,
-                        {
-                          date: iso(new Date()),
-                          from: entry.target,
-                          to: restoredTarget,
-                          reason: "Возобновление",
-                        },
-                      ]
-                    : entry.history,
-                };
+                return resumePlanItem(entry, iso(new Date()));
               }));
             }, "Направление возобновлено");
             close();
@@ -2076,12 +2123,17 @@ function PauseForm({
         event.preventDefault();
         update((current) => {
           const currentPlan = findPlan(current, scope, planId)!;
-          const nextItems = currentPlan.items.map((entry) => entry.id === itemId ? {
-            ...entry,
-            target,
-            paused: { reason, details: reason === "Другое" ? details : undefined, date: iso(new Date()), excluded: Math.max(0, entry.originalTarget - target) },
-            history: entry.target !== target ? [...entry.history, { date: iso(new Date()), from: entry.target, to: target, reason }] : entry.history,
-          } : entry);
+          const date = iso(new Date());
+          const nextItems = currentPlan.items.map((entry) =>
+            entry.id === itemId
+              ? pausePlanItem(entry, {
+                  target,
+                  reason,
+                  details: reason === "Другое" ? details : undefined,
+                  date,
+                })
+              : entry,
+          );
           return scope === "month"
             ? {
                 ...current,
@@ -2103,7 +2155,7 @@ function PauseForm({
         {item.metric === "checkbox" ? (
           <div className="calculation-box field-full"><span>План <strong>Отметка</strong></span></div>
         ) : (
-          <label className="field field-full"><span>Актуальный план</span><input type="number" min="0" max={item.originalTarget} step="0.1" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label>
+          <label className="field field-full"><span>Актуальный план</span><NumericInput min={0} max={item.originalTarget} value={target} onValueChange={setTarget} required /></label>
         )}
         {item.metric !== "checkbox" && (
           <div className="calculation-box field-full"><span>Первоначальный план <strong>{formatValue(item.originalTarget, item.metric, item.unit)}</strong></span><span>Исключено <strong>{formatValue(Math.max(0, item.originalTarget - target), item.metric, item.unit)}</strong></span><span>Актуальный план <strong>{formatValue(target, item.metric, item.unit)}</strong></span></div>

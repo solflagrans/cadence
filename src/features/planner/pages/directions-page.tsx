@@ -308,6 +308,12 @@ export function DirectionDetailsPage({
           </Button>
         }
       />
+      {direction.description && (
+        <section className="card direction-description">
+          <h2>Описание</h2>
+          <p>{direction.description}</p>
+        </section>
+      )}
       <div className="stats-grid">
         <div className="stat-card card">
           <span>Периодов с планом</span><strong>{periods.length}</strong>

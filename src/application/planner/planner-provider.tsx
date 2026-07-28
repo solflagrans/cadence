@@ -207,8 +207,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.dataset.theme = data.settings.theme;
-    document.documentElement.dataset.density = data.settings.density;
-  }, [data.settings.theme, data.settings.density]);
+  }, [data.settings.theme]);
 
   const update: PlannerContextValue["update"] = (recipe, message) => {
     if (!hydrated.current) changedDuringLoad.current = true;

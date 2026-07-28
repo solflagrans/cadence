@@ -14,6 +14,17 @@ import {
   mergePlannerData,
 } from "@/src/domain/planner/lib/state";
 import { normalizePlannerData } from "@/src/domain/planner/validation/normalize-planner-state";
+import { deleteActivityType } from "@/src/domain/planner/commands/activity-types";
+import { normalizePercentValues } from "@/src/domain/planner/lib/percentages";
+import {
+  numericValue,
+  sanitizeNumericInput,
+} from "@/src/shared/ui/numeric-input/numeric-input";
+import {
+  pausePlanItem,
+  resumePlanItem,
+} from "@/src/domain/planner/commands/plan-items";
+import { suggestedPlanTarget } from "@/src/domain/planner/lib/plan-targets";
 
 describe("planner domain", () => {
   it("removes a direction and all references to it", () => {
@@ -148,5 +159,98 @@ describe("planner domain", () => {
     delete legacy.reviews;
 
     expect(normalizePlannerData(legacy)?.reviews).toEqual([]);
+  });
+
+  it("normalizes non-zero percentages to exactly 100 percent", () => {
+    expect(normalizePercentValues([10, 20, 30])).toEqual([16.7, 33.3, 50]);
+    expect(normalizePercentValues([0, 1, 1])).toEqual([0, 50, 50]);
+    expect(normalizePercentValues([0, 0])).toEqual([0, 0]);
+    expect(normalizePercentValues([1, 1, 1]).reduce((sum, item) => sum + item, 0))
+      .toBe(100);
+  });
+
+  it("removes an archived activity from history and rebalances each day", () => {
+    const state = createInitialData();
+    state.activityTypes = [
+      { id: "deleted", name: "Deleted", color: "#111111", icon: "", order: 0, archived: true },
+      { id: "work", name: "Work", color: "#222222", icon: "", order: 1, archived: false },
+      { id: "rest", name: "Rest", color: "#333333", icon: "", order: 2, archived: false },
+    ];
+    state.days = [
+      {
+        date: "2026-07-28",
+        breaks: [],
+        segments: [
+          { activityId: "deleted", percent: 50 },
+          { activityId: "work", percent: 20 },
+          { activityId: "rest", percent: 30 },
+        ],
+      },
+      {
+        date: "2026-07-29",
+        breaks: [],
+        segments: [{ activityId: "deleted", percent: 100 }],
+      },
+    ];
+
+    const next = deleteActivityType(state, "deleted");
+
+    expect(next.activityTypes.map((item) => item.id)).toEqual(["work", "rest"]);
+    expect(next.days[0].segments).toEqual([
+      { activityId: "work", percent: 40 },
+      { activityId: "rest", percent: 60 },
+    ]);
+    expect(next.days[1].segments).toEqual([]);
+  });
+
+  it("keeps numeric drafts editable and ignores invalid characters", () => {
+    expect(sanitizeNumericInput("", "5")).toBe("");
+    expect(sanitizeNumericInput("12,5", "12")).toBe("12.5");
+    expect(sanitizeNumericInput("12a", "12")).toBe("12");
+    expect(sanitizeNumericInput("1.2.3", "1.2")).toBe("1.2");
+    expect(sanitizeNumericInput("2,5", "2", false)).toBe("2");
+    expect(numericValue("")).toBeNull();
+    expect(numericValue("12.5")).toBe(12.5);
+  });
+
+  it("records and reverses a weekly pause without losing plan history", () => {
+    const item = {
+      id: "week-item",
+      directionId: "direction-1",
+      originalTarget: 10,
+      target: 10,
+      metric: "count" as const,
+      unit: "раз",
+      history: [],
+    };
+
+    const paused = pausePlanItem(item, {
+      target: 0,
+      reason: "Болезнь",
+      date: "2026-07-28",
+    });
+    expect(paused.target).toBe(0);
+    expect(paused.paused?.excluded).toBe(10);
+    expect(paused.history.at(-1)).toMatchObject({ from: 10, to: 0 });
+
+    const resumed = resumePlanItem(paused, "2026-08-03");
+    expect(resumed.target).toBe(10);
+    expect(resumed.paused).toBeUndefined();
+    expect(resumed.history.at(-1)?.reason).toBe("Возобновление");
+  });
+
+  it("does not reuse a zero paused target for the following week", () => {
+    expect(suggestedPlanTarget({
+      metric: "count",
+      scope: "week",
+      previousTarget: 0,
+      monthTarget: 20,
+    })).toBe(5);
+    expect(suggestedPlanTarget({
+      metric: "checkbox",
+      scope: "week",
+      previousTarget: 0,
+      monthTarget: 1,
+    })).toBe(1);
   });
 });

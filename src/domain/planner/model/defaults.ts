@@ -19,6 +19,5 @@ export const createInitialData = (): PlannerData => ({
     weekReminder: true,
     monthReminder: true,
     theme: "light",
-    density: "comfortable",
   },
 });

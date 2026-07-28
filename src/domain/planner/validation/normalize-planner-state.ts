@@ -72,6 +72,9 @@ const direction = (entry: UnknownRecord): Direction | null => {
   return {
     id,
     name: string(entry.name, "Без названия"),
+    ...(string(entry.description).trim()
+      ? { description: string(entry.description).trim() }
+      : {}),
     metric: metric(entry.metric),
     unit: string(entry.unit),
     color: string(entry.color, "#47624f"),
@@ -225,7 +228,6 @@ const settings = (value: unknown): AppSettings => {
       value.theme === "dark" || value.theme === "system"
         ? value.theme
         : "light",
-    density: value.density === "compact" ? "compact" : "comfortable",
   };
 };
 

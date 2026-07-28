@@ -93,20 +93,6 @@ export function SettingsPage({
               <option value="system">Системная</option>
             </select>
           </label>
-          <label className="setting-row">
-            <div><strong>Плотность</strong></div>
-            <select
-              value={data.settings.density}
-              onChange={(event) =>
-                patchSettings({
-                  density: event.target.value as "comfortable" | "compact",
-                })
-              }
-            >
-              <option value="comfortable">Удобная</option>
-              <option value="compact">Компактная</option>
-            </select>
-          </label>
         </section>
         <section className="card settings-section data-section">
           <SettingsTitle icon="cloud">Данные</SettingsTitle>

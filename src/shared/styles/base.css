@@ -35,6 +35,6 @@ input, select, textarea {
 }
 
 button, strong, h1, h2, h3 { font-variation-settings: "wght" 620; }
-input[type="number"], input[type="time"], .stat-card strong, .row-value {
+input[type="time"], .stat-card strong, .row-value {
   font-variant-numeric: tabular-nums;
 }

@@ -12,6 +12,7 @@ export type ActivityType = {
 export type Direction = {
   id: string;
   name: string;
+  description?: string;
   metric: MetricType;
   unit: string;
   color: string;
@@ -94,7 +95,6 @@ export type AppSettings = {
   weekReminder: boolean;
   monthReminder: boolean;
   theme: "light" | "dark" | "system";
-  density: "comfortable" | "compact";
 };
 
 export type PlannerData = {
