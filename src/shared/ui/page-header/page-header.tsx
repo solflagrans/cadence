@@ -8,6 +8,7 @@ export function PageHeader({
   back,
   eyebrow,
   description,
+  breadcrumbs,
 }: {
   title: string;
   meta?: ReactNode;
@@ -15,6 +16,10 @@ export function PageHeader({
   back?: () => void;
   eyebrow?: string;
   description?: string;
+  breadcrumbs?: {
+    label: string;
+    onClick?: () => void;
+  }[];
 }) {
   return (
     <header className="page-header">
@@ -25,6 +30,20 @@ export function PageHeader({
           </button>
         )}
         <div>
+          {breadcrumbs && (
+            <nav className="page-breadcrumbs" aria-label="Путь">
+              {breadcrumbs.map((item, index) => (
+                <span key={`${item.label}-${index}`}>
+                  {index > 0 && <i aria-hidden="true">/</i>}
+                  {item.onClick ? (
+                    <button onClick={item.onClick}>{item.label}</button>
+                  ) : (
+                    <strong aria-current="page">{item.label}</strong>
+                  )}
+                </span>
+              ))}
+            </nav>
+          )}
           {eyebrow && <span className="page-eyebrow">{eyebrow}</span>}
           <h1>{title}</h1>
           {description && <p className="page-description">{description}</p>}

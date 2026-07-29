@@ -3,7 +3,7 @@ import type {
   PlannerData,
 } from "@/src/domain/planner/model/types";
 import { monthIdForWeek } from "@/src/domain/planner/lib/dates";
-import { itemFact, progress } from "@/src/domain/planner/lib/progress";
+import { itemFact, itemProgress } from "@/src/domain/planner/lib/progress";
 
 export function PlanSummary({
   data,
@@ -17,7 +17,7 @@ export function PlanSummary({
       if (item.paused) acc.paused += 1;
       else {
         const fact = itemFact(data, item);
-        const pct = progress(fact, item.target, item.metric);
+        const pct = itemProgress(fact, item);
         if (pct >= 100) acc.done += 1;
         else if (pct > 0) acc.partial += 1;
         else acc.empty += 1;

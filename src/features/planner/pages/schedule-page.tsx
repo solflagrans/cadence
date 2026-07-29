@@ -372,20 +372,30 @@ export function SchedulePage({
                   </div>
                   <SegmentedBar segments={day.segments} data={data} />
                   <div className="calendar-legend">
-                    {day.segments.map((segment) => {
+                    {day.segments.slice(0, 2).map((segment) => {
                       const type = data.activityTypes.find(
                         (item) => item.id === segment.activityId,
                       );
                       return (
                         <span key={segment.activityId}>
                           <i style={{ background: type?.color }} />
-                          {type?.name}
+                          <span
+                            className="calendar-activity-name"
+                            title={type?.name}
+                          >
+                            {type?.name}
+                          </span>
                           <strong>{segment.percent}%</strong>
                         </span>
                       );
                     })}
                     {!day.segments.length && (
                       <span className="muted">Не задано</span>
+                    )}
+                    {day.segments.length > 2 && (
+                      <span className="calendar-hidden-count">
+                        +{day.segments.length - 2}
+                      </span>
                     )}
                   </div>
                 </button>

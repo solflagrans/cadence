@@ -14,7 +14,12 @@ import type {
   PeriodReview,
   PlanItem,
   WeekPlan,
+  ValueFormat,
 } from "@/src/domain/planner/model/types";
+import {
+  defaultMetricFormat,
+  normalizeDecimalPlaces,
+} from "@/src/domain/planner/lib/metric-format";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -47,6 +52,11 @@ const metric = (value: unknown): MetricType =>
     ? value
     : "count";
 
+const valueFormat = (
+  value: unknown,
+  fallback: ValueFormat,
+): ValueFormat => (value === "decimal" ? "decimal" : value === "integer" ? "integer" : fallback);
+
 const requiredString = (value: unknown): string | null => {
   const normalized = string(value).trim();
   return normalized || null;
@@ -68,26 +78,50 @@ const activity = (entry: UnknownRecord): ActivityType | null => {
 const direction = (entry: UnknownRecord): Direction | null => {
   const id = requiredString(entry.id);
   if (!id) return null;
-  const deletedAt = string(entry.deletedAt);
+  const normalizedMetric = metric(entry.metric);
+  const unit = string(entry.unit);
+  const defaults = defaultMetricFormat(normalizedMetric, unit);
+  const format = valueFormat(entry.valueFormat, defaults.valueFormat);
+  const decimalPlaces = normalizeDecimalPlaces(
+    format,
+    number(entry.decimalPlaces, defaults.decimalPlaces),
+  );
   return {
     id,
     name: string(entry.name, "Без названия"),
     ...(string(entry.description).trim()
       ? { description: string(entry.description).trim() }
       : {}),
-    metric: metric(entry.metric),
-    unit: string(entry.unit),
+    metric: normalizedMetric,
+    unit,
+    valueFormat: format,
+    decimalPlaces,
     color: string(entry.color, "#47624f"),
     availability:
-      entry.availability === "paused" || entry.availability === "archived"
+      string(entry.deletedAt) || entry.availability === "archived"
+        ? "archived"
+        : entry.availability === "paused"
         ? entry.availability
         : "active",
-    ...(deletedAt ? { deletedAt } : {}),
-    metricHistory: list(entry.metricHistory, (history) => ({
-      metric: metric(history.metric),
-      unit: string(history.unit),
-      since: string(history.since),
-    })),
+    metricHistory: list(entry.metricHistory, (history) => {
+      const historyMetric = metric(history.metric);
+      const historyUnit = string(history.unit);
+      const historyDefaults = defaultMetricFormat(historyMetric, historyUnit);
+      const historyFormat = valueFormat(
+        history.valueFormat,
+        historyDefaults.valueFormat,
+      );
+      return {
+        metric: historyMetric,
+        unit: historyUnit,
+        valueFormat: historyFormat,
+        decimalPlaces: normalizeDecimalPlaces(
+          historyFormat,
+          number(history.decimalPlaces, historyDefaults.decimalPlaces),
+        ),
+        since: string(history.since),
+      };
+    }),
   };
 };
 
@@ -233,13 +267,19 @@ const settings = (value: unknown): AppSettings => {
 
 export const normalizePlannerData = (value: unknown): PlannerData | null => {
   if (!isRecord(value) || value.version !== 2) return null;
+  const months = list(value.months, month).filter(
+    (plan) => plan.items.length > 0,
+  );
+  const weeks = list(value.weeks, week).filter(
+    (plan) => plan.items.length > 0,
+  );
   return {
     version: 2,
     activityTypes: list(value.activityTypes, activity),
     directions: list(value.directions, direction),
     days: list(value.days, day),
-    months: list(value.months, month),
-    weeks: list(value.weeks, week),
+    months,
+    weeks,
     completions: list(value.completions, completion),
     extraResults: list(value.extraResults, extraResult),
     reviews: list(value.reviews, review),

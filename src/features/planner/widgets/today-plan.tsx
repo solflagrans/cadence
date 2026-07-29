@@ -52,9 +52,14 @@ export function TodayPlan({
         const direction = data.directions.find(
           (entry) => entry.id === item.directionId,
         );
-        if (!direction || direction.deletedAt) return null;
+        if (!direction) return null;
         const fact = itemFact(data, item, weekId);
-        const percent = progress(fact, item.target, item.metric);
+        const percent = progress(
+          fact,
+          item.target,
+          item.metric,
+          Boolean(item.paused),
+        );
         const quickValue =
           item.metric === "duration"
             ? item.unit === "мин."

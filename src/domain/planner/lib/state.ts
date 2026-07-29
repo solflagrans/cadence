@@ -89,7 +89,9 @@ export const mergePlannerData = (
 });
 
 export const plannerContentSummary = (data: PlannerData) => ({
-  directions: data.directions.filter((item) => !item.deletedAt).length,
+  directions: data.directions.filter(
+    (item) => item.availability !== "archived",
+  ).length,
   months: data.months.length,
   weeks: data.weeks.length,
   completions: data.completions.length,

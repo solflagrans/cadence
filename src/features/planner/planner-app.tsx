@@ -14,6 +14,7 @@ import type {
   PlanItem,
   PlannerData,
   Route,
+  ValueFormat,
 } from "@/app/lib/types";
 import {
   addDays,
@@ -39,8 +40,10 @@ import {
 import type { AccountIdentity } from "@/app/lib/auth/types";
 import {
   addDirection,
+  archiveDirection,
   deleteDirection,
-  moveDirectionToTrash,
+  directionDeletionImpact,
+  isDirectionMetricUsed,
   restoreDirection,
   updateDirection,
 } from "@/src/domain/planner/commands/directions";
@@ -76,10 +79,20 @@ import { TodayPlan } from "./widgets/today-plan";
 import { PeriodReview } from "./widgets/period-review";
 import { normalizePercentValues } from "@/src/domain/planner/lib/percentages";
 import {
-  pausePlanItem,
   resumePlanItem,
 } from "@/src/domain/planner/commands/plan-items";
 import { suggestedPlanTarget } from "@/src/domain/planner/lib/plan-targets";
+import {
+  defaultMetricFormat,
+  normalizeDecimalPlaces,
+} from "@/src/domain/planner/lib/metric-format";
+import {
+  defaultPauseTarget,
+  pauseMonthDirection,
+  pauseWeekDirection,
+} from "@/src/domain/planner/commands/pauses";
+import { clearWorkPeriod } from "@/src/domain/planner/commands/days";
+import { selectPlanCandidates } from "@/src/domain/planner/selectors/planner-selectors";
 import { PlansPage } from "./pages/plans-page";
 import { SettingsPage } from "./pages/settings-page";
 import { SchedulePage } from "./pages/schedule-page";
@@ -286,7 +299,7 @@ function PlannerAppContent({ initialRoute }: { initialRoute: Route }) {
             />
           )}
           {route.page === "directions" && (
-            <DirectionsPage data={data} setModal={setModal} />
+            <DirectionsPage data={data} setModal={setModal} update={update} />
           )}
           {route.page === "direction" && (
             <DirectionDetailsPage
@@ -529,7 +542,7 @@ function Overview({ data, setModal }: { data: PlannerData; setModal: (m: ModalSt
         eyebrow="Ваш ритм"
         description="Главное на сегодня: график, текущие планы и результаты."
         meta={<span>{dateLabel(currentDate, { weekday: "long", day: "numeric", month: "long" })}</span>}
-        actions={<Button icon="plus" onClick={() => setModal({ kind: "fact", weekId })}>Добавить выполнение</Button>}
+        actions={<Button icon="plus" onClick={() => setModal({ kind: "fact", weekId })}>Внести прогресс</Button>}
       />
       {attention.length > 0 && (
         <section className="attention-strip">
@@ -585,8 +598,7 @@ function Overview({ data, setModal }: { data: PlannerData; setModal: (m: ModalSt
             <>
               <PlanRows data={data} items={week.items} scope="week" planId={week.id} weekId={week.id} setModal={setModal} />
               <div className="inline-actions">
-                <Button icon="plus" variant="secondary" onClick={() => setModal({ kind: "fact", weekId })}>Добавить выполнение</Button>
-                <Button icon="spark" variant="ghost" onClick={() => setModal({ kind: "extra", weekId })}>Добавить результат</Button>
+                <Button icon="plus" variant="secondary" onClick={() => setModal({ kind: "fact", weekId })}>Внести прогресс</Button>
               </div>
             </>
           ) : (
@@ -700,7 +712,7 @@ function Today({
                 update={update}
                 setModal={setModal}
               />
-              <Button icon="plus" variant="secondary" onClick={() => setModal({ kind: "fact", weekId })}>Добавить другое выполнение</Button>
+              <Button icon="plus" variant="secondary" onClick={() => setModal({ kind: "fact", weekId })}>Внести прогресс</Button>
             </>
           ) : (
             <EmptyState icon="today" title="Неделя ещё не запланирована" text="Добавьте направления, чтобы отмечать выполнение сегодня." action="Запланировать неделю" onAction={() => setModal({ kind: "week-plan", weekId })} />
@@ -748,8 +760,10 @@ function MonthPage({
     <>
       <PageHeader
         title={monthName(monthId)}
-        eyebrow="Месячный план"
-        back={() => navigate({ page: "plans" })}
+        breadcrumbs={[
+          { label: "Планы", onClick: () => navigate({ page: "plans" }) },
+          { label: monthName(monthId) },
+        ]}
         meta={<Badge tone={periodStatus(monthId, "month") === "Текущий" ? "blue" : "neutral"}>{periodStatus(monthId, "month")}</Badge>}
         actions={
           <div className="period-switcher">
@@ -851,8 +865,14 @@ function WeekPage({
     <>
       <PageHeader
         title={weekLabel(weekId)}
-        eyebrow="Недельный план"
-        back={() => navigate({ page: "month", id: monthId })}
+        breadcrumbs={[
+          { label: "Планы", onClick: () => navigate({ page: "plans" }) },
+          {
+            label: monthName(monthId),
+            onClick: () => navigate({ page: "month", id: monthId }),
+          },
+          { label: weekLabel(weekId) },
+        ]}
         meta={<><button className="crumb-link" onClick={() => navigate({ page: "month", id: monthId })}>{monthName(monthId)}</button><Badge tone={periodStatus(weekId, "week") === "Текущая" ? "blue" : "neutral"}>{periodStatus(weekId, "week")}</Badge></>}
         actions={
           <div className="period-switcher">
@@ -873,8 +893,7 @@ function WeekPage({
           <>
             <PlanRows data={data} items={week.items} scope="week" planId={week.id} weekId={week.id} setModal={setModal} />
             <div className="inline-actions">
-              <Button onClick={() => setModal({ kind: "fact", weekId })}>Добавить выполнение</Button>
-              <Button variant="secondary" onClick={() => setModal({ kind: "extra", weekId })}>Добавить результат</Button>
+              <Button onClick={() => setModal({ kind: "fact", weekId })}>Внести прогресс</Button>
             </div>
           </>
         ) : (
@@ -953,11 +972,11 @@ function ModalHost({
             : { kind: "week-plan", weekId: returnToPlan.id },
         )
       : close;
-    return <DirectionForm direction={modal.direction} close={directionClose} update={update} setModal={setModal} />;
+    return <DirectionForm data={data} direction={modal.direction} close={directionClose} update={update} setModal={setModal} />;
   }
   if (modal.kind === "activity") return <ActivityForm activity={modal.activity} close={close} update={update} />;
   if (modal.kind === "day") return <DayForm data={data} date={modal.date} close={close} update={update} />;
-  if (modal.kind === "work") return <WorkForm data={data} date={modal.date} close={close} update={update} />;
+  if (modal.kind === "work") return <WorkForm data={data} date={modal.date} close={close} update={update} setModal={setModal} />;
   if (modal.kind === "fact") return <FactForm data={data} weekId={modal.weekId} directionId={modal.directionId} completionId={modal.completionId} close={close} update={update} setModal={setModal} />;
   if (modal.kind === "extra") return <ExtraForm data={data} weekId={modal.weekId} resultId={modal.resultId} close={close} update={update} setModal={setModal} />;
   if (modal.kind === "month-plan") return <PlanForm data={data} scope="month" id={modal.monthId} close={close} update={update} setModal={setModal} />;
@@ -1019,11 +1038,13 @@ function ModalHost({
 }
 
 function DirectionForm({
+  data,
   direction,
   close,
   update,
   setModal,
 }: {
+  data: PlannerData;
   direction?: Direction;
   close: () => void;
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
@@ -1040,9 +1061,29 @@ function DirectionForm({
   const [unit, setUnit] = useState(
     normalizeUnit(direction?.metric ?? "count", direction?.unit ?? "раз"),
   );
+  const initialFormat = defaultMetricFormat(
+    direction?.metric ?? "count",
+    direction?.unit ?? "раз",
+  );
+  const [valueFormat, setValueFormat] = useState<ValueFormat>(
+    direction?.valueFormat ?? initialFormat.valueFormat,
+  );
+  const [decimalPlaces, setDecimalPlaces] = useState(
+    direction?.decimalPlaces ?? initialFormat.decimalPlaces,
+  );
   const [color, setColor] = useState(direction?.color ?? "#5278d9");
   const [availability, setAvailability] = useState(direction?.availability ?? "active");
   const savedUnit = normalizeUnit(metric, unit);
+  const metricUsed = direction
+    ? isDirectionMetricUsed(data, direction.id)
+    : false;
+  const metricDefaults = defaultMetricFormat(metric, savedUnit);
+  const savedValueFormat =
+    metric === "count" ? valueFormat : metricDefaults.valueFormat;
+  const savedDecimalPlaces = normalizeDecimalPlaces(
+    savedValueFormat,
+    metric === "count" ? decimalPlaces : metricDefaults.decimalPlaces,
+  );
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!name.trim()) return;
@@ -1056,12 +1097,32 @@ function DirectionForm({
           ...nextDirection,
           name: name.trim(),
           description: description.trim() || undefined,
-          metric,
-          unit: savedUnit,
+          metric: metricUsed ? nextDirection.metric : metric,
+          unit: metricUsed ? nextDirection.unit : savedUnit,
+          valueFormat: metricUsed
+            ? nextDirection.valueFormat
+            : savedValueFormat,
+          decimalPlaces: metricUsed
+            ? nextDirection.decimalPlaces
+            : savedDecimalPlaces,
           color,
           availability,
-          metricHistory: metric !== nextDirection.metric || savedUnit !== nextDirection.unit
-            ? [...nextDirection.metricHistory, { metric, unit: savedUnit, since: iso(new Date()).slice(0, 7) }]
+          metricHistory:
+            !metricUsed &&
+            (metric !== nextDirection.metric ||
+              savedUnit !== nextDirection.unit ||
+              savedValueFormat !== nextDirection.valueFormat ||
+              savedDecimalPlaces !== nextDirection.decimalPlaces)
+            ? [
+                ...nextDirection.metricHistory,
+                {
+                  metric,
+                  unit: savedUnit,
+                  valueFormat: savedValueFormat,
+                  decimalPlaces: savedDecimalPlaces,
+                  since: iso(new Date()).slice(0, 7),
+                },
+              ]
             : nextDirection.metricHistory,
         });
       }
@@ -1071,45 +1132,55 @@ function DirectionForm({
         description: description.trim() || undefined,
         metric,
         unit: savedUnit,
+        valueFormat: savedValueFormat,
+        decimalPlaces: savedDecimalPlaces,
         color,
         availability: "active",
-        metricHistory: [{ metric, unit: savedUnit, since: iso(new Date()).slice(0, 7) }],
+        metricHistory: [
+          {
+            metric,
+            unit: savedUnit,
+            valueFormat: savedValueFormat,
+            decimalPlaces: savedDecimalPlaces,
+            since: iso(new Date()).slice(0, 7),
+          },
+        ],
       });
     }, direction ? "Направление обновлено" : "Направление создано");
     close();
   };
-  const remove = () => {
+  const archive = () => {
     if (!direction) return;
-    if (direction.deletedAt) {
-      setModal({
-        kind: "confirm",
-        title: "Удалить направление навсегда?",
-        message:
-          "Направление, его планы и записи выполнения будут удалены без возможности восстановления.",
-        confirmLabel: "Удалить навсегда",
-        tone: "danger",
-        returnTo: { kind: "direction", direction },
-        onConfirm: () => {
-          update(
-            (current) => deleteDirection(current, direction.id),
-            "Направление удалено навсегда",
-          );
-          if (routeFromPathname(window.location.pathname).page === "direction") {
-            navigate({ page: "directions" });
-          }
-        },
-      });
-      return;
-    }
     update(
-      (current) =>
-        moveDirectionToTrash(current, direction.id, iso(new Date())),
-      "Направление перемещено в корзину",
+      (current) => archiveDirection(current, direction.id),
+      "Направление архивировано",
     );
     close();
     if (routeFromPathname(window.location.pathname).page === "direction") {
       navigate({ page: "directions" });
     }
+  };
+  const remove = () => {
+    if (!direction || direction.availability !== "archived") return;
+    const impact = directionDeletionImpact(data, direction.id);
+    setModal({
+      kind: "confirm",
+      title: "Удалить направление навсегда?",
+      message:
+        `Действие необратимо и изменит историю. Будут удалены направление, ${impact.months} мес. планов, ${impact.weeks} нед. планов и ${impact.completions} записей прогресса вместе с приостановками и корректировками.`,
+      confirmLabel: "Удалить навсегда",
+      tone: "danger",
+      returnTo: { kind: "direction", direction },
+      onConfirm: () => {
+        update(
+          (current) => deleteDirection(current, direction.id),
+          "Направление удалено навсегда",
+        );
+        if (routeFromPathname(window.location.pathname).page === "direction") {
+          navigate({ page: "directions" });
+        }
+      },
+    });
   };
   const restore = () => {
     if (!direction) return;
@@ -1131,32 +1202,73 @@ function DirectionForm({
             rows={3}
           />
         </label>
-        <label className="field"><span>Метрика</span><select value={metric} onChange={(e) => {
+        <label className="field"><span>Метрика</span><select disabled={metricUsed} value={metric} onChange={(e) => {
           const nextMetric = e.target.value as MetricType;
           setMetric(nextMetric);
-          setUnit(normalizeUnit(
+          const nextUnit = normalizeUnit(
             nextMetric,
             nextMetric === direction?.metric ? direction.unit : nextMetric === "count" ? "раз" : "",
-          ));
+          );
+          setUnit(nextUnit);
+          const nextFormat = defaultMetricFormat(nextMetric, nextUnit);
+          setValueFormat(nextFormat.valueFormat);
+          setDecimalPlaces(nextFormat.decimalPlaces);
         }}>{Object.entries(metricName).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        {metric === "count" && <label className="field"><span>Единица</span><input value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
-        {metric === "duration" && <label className="field"><span>Единица</span><select value={savedUnit} onChange={(e) => setUnit(e.target.value)}><option value="ч.">ч.</option><option value="мин.">мин.</option></select></label>}
-        <ColorPicker value={color} onChange={setColor} />
-        {direction && !direction.deletedAt && <label className="field"><span>Доступность</span><select value={availability} onChange={(e) => setAvailability(e.target.value as Direction["availability"])}><option value="active">Активно</option><option value="paused">Приостановлено</option><option value="archived">Архив</option></select></label>}
-        {direction?.deletedAt && (
-          <p className="inline-message inline-message-error field-full">
-            <Icon name="trash" size={16} />
-            Направление находится в корзине. История и планы пока сохранены.
+        {metric === "count" && <label className="field"><span>Единица</span><input disabled={metricUsed} value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
+        {metric === "duration" && <label className="field"><span>Единица</span><select disabled={metricUsed} value={savedUnit} onChange={(e) => {
+          const nextUnit = e.target.value;
+          setUnit(nextUnit);
+          const nextFormat = defaultMetricFormat(metric, nextUnit);
+          setValueFormat(nextFormat.valueFormat);
+          setDecimalPlaces(nextFormat.decimalPlaces);
+        }}><option value="ч.">ч.</option><option value="мин.">мин.</option></select></label>}
+        {metric === "count" && (
+          <label className="field">
+            <span>Формат значения</span>
+            <select
+              disabled={metricUsed}
+              value={valueFormat}
+              onChange={(event) => {
+                const next = event.target.value as ValueFormat;
+                setValueFormat(next);
+                setDecimalPlaces(next === "decimal" ? 1 : 0);
+              }}
+            >
+              <option value="integer">Целое</option>
+              <option value="decimal">Дробное</option>
+            </select>
+          </label>
+        )}
+        {savedValueFormat === "decimal" && metric === "count" && (
+          <label className="field">
+            <span>Знаков после запятой</span>
+            <select
+              disabled={metricUsed}
+              value={savedDecimalPlaces}
+              onChange={(event) =>
+                setDecimalPlaces(Number(event.target.value))
+              }
+            >
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+            </select>
+          </label>
+        )}
+        {metricUsed && (
+          <p className="inline-message field-full">
+            Метрику нельзя изменить, потому что она уже используется в планах или результатах
           </p>
         )}
+        <ColorPicker value={color} onChange={setColor} />
+        {direction && direction.availability !== "archived" && <label className="field"><span>Доступность</span><select value={availability} onChange={(e) => setAvailability(e.target.value as Direction["availability"])}><option value="active">Активно</option><option value="paused">Приостановлено</option></select></label>}
         <div className="modal-actions field-full">
-          {direction?.deletedAt ? (
+          {direction?.availability === "archived" ? (
             <>
               <Button variant="danger" type="button" onClick={remove}>Удалить навсегда</Button>
               <Button icon="upload" variant="secondary" type="button" onClick={restore}>Восстановить</Button>
             </>
           ) : direction ? (
-            <Button icon="trash" variant="danger" type="button" onClick={remove}>В корзину</Button>
+            <Button variant="secondary" type="button" onClick={archive}>Архивировать</Button>
           ) : null}
           <Button variant="secondary" type="button" onClick={close}>Отмена</Button>
           <Button type="submit">Сохранить</Button>
@@ -1338,11 +1450,13 @@ function WorkForm({
   date,
   close,
   update,
+  setModal,
 }: {
   data: PlannerData;
   date: string;
   close: () => void;
   update: (r: (d: PlannerData) => PlannerData, m?: string) => void;
+  setModal: (modal: ModalState) => void;
 }) {
   const day = data.days.find((item) => item.date === date);
   const [start, setStart] = useState(day?.workStart ?? "12:30");
@@ -1369,6 +1483,30 @@ function WorkForm({
       );
     }) &&
     mins.net > 0;
+  const removeWorkPeriod = () => {
+    if (!day?.workStart && !day?.workEnd) return;
+    const remove = (clearBreaks: boolean) => {
+      update(
+        (state) => clearWorkPeriod(state, date, clearBreaks),
+        "Рабочий период убран",
+      );
+      close();
+    };
+    if (!day.breaks.length) {
+      remove(false);
+      return;
+    }
+    setModal({
+      kind: "confirm",
+      title: "Убрать рабочий период?",
+      message:
+        `В рабочем периоде ${day.breaks.length} перерывов. Они не могут существовать без рабочего периода и также будут удалены.`,
+      confirmLabel: "Убрать период и перерывы",
+      tone: "danger",
+      returnTo: { kind: "work", date },
+      onConfirm: () => remove(true),
+    });
+  };
   return (
     <Modal title="Рабочий период" onClose={close}>
       <form onSubmit={(event) => {
@@ -1402,7 +1540,15 @@ function WorkForm({
           <span>Итого <strong>{formatMinutes(mins.net)}</strong></span>
         </div>
         {!valid && <p className="form-error">Проверьте время начала и окончания</p>}
-        <div className="modal-actions"><Button variant="secondary" type="button" onClick={close}>Отмена</Button><Button disabled={!valid}>Сохранить</Button></div>
+        <div className="modal-actions">
+          {(day?.workStart || day?.workEnd) && (
+            <Button variant="danger" type="button" onClick={removeWorkPeriod}>
+              Убрать рабочий период
+            </Button>
+          )}
+          <Button variant="secondary" type="button" onClick={close}>Отмена</Button>
+          <Button disabled={!valid}>Сохранить</Button>
+        </div>
       </form>
     </Modal>
   );
@@ -1432,6 +1578,9 @@ function FactForm({
     existing?.directionId ?? directionId ?? available[0]?.directionId ?? "",
   );
   const item = available.find((entry) => entry.directionId === selectedId);
+  const selectedDirection = data.directions.find(
+    (entry) => entry.id === selectedId,
+  );
   const [value, setValue] = useState(existing?.value ?? 1);
   const [date, setDate] = useState(() => {
     if (existing) return existing.date;
@@ -1439,7 +1588,7 @@ function FactForm({
     return today >= weekId && today <= iso(addDays(parseDate(weekId), 6)) ? today : weekId;
   });
   return (
-    <Modal title={existing ? "Изменить выполнение" : "Добавить выполнение"} onClose={close}>
+    <Modal title={existing ? "Изменить прогресс" : "Внести прогресс"} onClose={close}>
       {!week || !available.length ? (
         <EmptyState
           icon="today"
@@ -1470,7 +1619,7 @@ function FactForm({
                   }
                 : recordCompletion(current, completion);
             },
-            existing ? "Выполнение обновлено" : "Выполнение добавлено",
+            existing ? "Прогресс обновлён" : "Прогресс добавлен",
           );
           close();
         }}>
@@ -1480,7 +1629,14 @@ function FactForm({
           ) : (
             <label className="field">
               <span>{item?.metric === "percent" ? "Текущий процент" : "Добавить"}{item?.unit && `, ${item.unit}`}</span>
-              <NumericInput min={0.1} value={value} onValueChange={setValue} required />
+              <NumericInput
+                min={0.1}
+                value={value}
+                onValueChange={setValue}
+                allowDecimal={selectedDirection?.valueFormat === "decimal"}
+                decimalPlaces={selectedDirection?.decimalPlaces ?? 0}
+                required
+              />
             </label>
           )}
           <label className="field"><span>Дата</span><input type="date" min={weekId} max={iso(addDays(parseDate(weekId), 6))} value={date} onChange={(e) => setDate(e.target.value)} required /></label>
@@ -1543,6 +1699,7 @@ function ExtraForm({
   const [unit, setUnit] = useState(existing?.unit || "раз");
   const [value, setValue] = useState(existing?.value ?? 1);
   const [date, setDate] = useState(existing?.date ?? weekId);
+  const extraFormat = defaultMetricFormat(metric, unit);
   return (
     <Modal title={existing ? "Изменить результат" : "Дополнительный результат"} onClose={close}>
       <p className="form-intro">
@@ -1565,7 +1722,7 @@ function ExtraForm({
         <label className="field field-full"><span>Название результата</span><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} required /></label>
         <label className="field"><span>Метрика</span><select value={metric} onChange={(e) => setMetric(e.target.value as MetricType)}>{Object.entries(metricName).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         {metric !== "checkbox" && metric !== "percent" && <label className="field"><span>Единица</span><input value={unit} onChange={(e) => setUnit(e.target.value)} required /></label>}
-        {metric !== "checkbox" && <label className="field"><span>Значение</span><NumericInput min={0.1} value={value} onValueChange={setValue} required /></label>}
+        {metric !== "checkbox" && <label className="field"><span>Значение</span><NumericInput min={0.1} value={value} onValueChange={setValue} allowDecimal={extraFormat.valueFormat === "decimal"} decimalPlaces={extraFormat.decimalPlaces} required /></label>}
         <label className="field"><span>Дата</span><input type="date" min={weekId} max={iso(addDays(parseDate(weekId), 6))} value={date} onChange={(e) => setDate(e.target.value)} required /></label>
         <div className="modal-actions field-full">
           {existing && (
@@ -1624,26 +1781,14 @@ function PlanForm({
     : data.weeks.find((item) => item.id === id);
   const monthId = scope === "month" ? id : monthIdForWeek(id);
   const month = data.months.find((item) => item.id === monthId);
-  const candidates = scope === "month"
-    ? data.directions.filter(
-        (item) => item.availability === "active" && !item.deletedAt,
-      )
-    : data.directions.filter(
-        (direction) =>
-          !direction.deletedAt &&
-          month?.items.some(
-            (item) => item.directionId === direction.id && !item.paused,
-          ) &&
-          direction.availability === "active",
-      );
+  const candidates = selectPlanCandidates(data, scope, monthId);
   const metricForDirection = (directionId: string) => {
     const direction = data.directions.find((item) => item.id === directionId);
-    const monthItem = scope === "week"
-      ? month?.items.find((item) => item.directionId === directionId)
-      : undefined;
     return {
-      metric: monthItem?.metric ?? direction?.metric,
-      unit: monthItem?.unit ?? direction?.unit ?? "",
+      metric: direction?.metric,
+      unit: direction?.unit ?? "",
+      valueFormat: direction?.valueFormat ?? "integer",
+      decimalPlaces: direction?.decimalPlaces ?? 0,
     };
   };
   const previousId =
@@ -1684,7 +1829,15 @@ function PlanForm({
   const [step, setStep] = useState<"directions" | "targets" | "review">(
     existing ? "targets" : "directions",
   );
-  const invalidTargets = rows.some((row) => row.target <= 0);
+  const canBeZero = (directionId: string) =>
+    Boolean(
+      existing?.items.find(
+        (item) => item.directionId === directionId && item.paused,
+      ),
+    );
+  const invalidTargets = rows.some(
+    (row) => row.target < 0 || (row.target === 0 && !canBeZero(row.directionId)),
+  );
   const toggleDirection = (directionId: string) => {
     setRows((current) =>
       current.some((item) => item.directionId === directionId)
@@ -1712,16 +1865,23 @@ function PlanForm({
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!rows.length || rows.some((row) => row.target <= 0 || !row.directionId)) return;
+    if (
+      !rows.length ||
+      rows.some(
+        (row) =>
+          row.target < 0 ||
+          (row.target === 0 && !canBeZero(row.directionId)) ||
+          !row.directionId,
+      )
+    ) return;
     const oldItems = existing?.items ?? [];
     const items = rows.map((row) => {
       const old = oldItems.find((item) => item.directionId === row.directionId);
       const direction = data.directions.find((item) => item.id === row.directionId)!;
-      const metricSource = scope === "week" ? month?.items.find((item) => item.directionId === row.directionId) : undefined;
-      const metric = metricSource?.metric ?? direction.metric;
+      const metric = direction.metric;
       const planUnit = metric === "checkbox" || metric === "percent"
         ? ""
-        : metricSource?.unit ?? direction.unit;
+        : direction.unit;
       const target = metric === "checkbox" ? 1 : row.target;
       if (old) return {
         ...old,
@@ -1882,7 +2042,9 @@ function PlanForm({
                       ) : (
                         <NumericInput
                           aria-label={`План: ${direction?.name}`}
-                          min={0.1}
+                          min={canBeZero(row.directionId) ? 0 : 0.1}
+                          allowDecimal={rowMetric.valueFormat === "decimal"}
+                          decimalPlaces={rowMetric.decimalPlaces}
                           value={row.target}
                           onValueChange={(value) =>
                             setRows((items) =>
@@ -1975,29 +2137,14 @@ function findPlan(data: PlannerData, scope: "month" | "week", planId: string) {
   return scope === "month" ? data.months.find((item) => item.id === planId) : data.weeks.find((item) => item.id === planId);
 }
 
-function currentPlanMetric(
-  data: PlannerData,
-  scope: "month" | "week",
-  planId: string,
-  direction: Direction,
-) {
-  if (direction.metric === "checkbox") return { metric: direction.metric, unit: "" };
-  if (scope === "month") {
-    return {
-      metric: direction.metric,
-      unit: direction.metric === "percent" ? "" : direction.unit,
-    };
-  }
-  const week = data.weeks.find((item) => item.id === planId);
-  const monthItem = data.months
-    .find((item) => item.id === week?.monthId)
-    ?.items.find((item) => item.directionId === direction.id);
-  const metric = monthItem?.metric ?? direction.metric;
+function currentPlanMetric(direction: Direction) {
   return {
-    metric,
-    unit: metric === "checkbox" || metric === "percent"
+    metric: direction.metric,
+    unit: direction.metric === "checkbox" || direction.metric === "percent"
       ? ""
-      : monthItem?.unit ?? direction.unit,
+      : direction.unit,
+    valueFormat: direction.valueFormat,
+    decimalPlaces: direction.decimalPlaces,
   };
 }
 
@@ -2023,16 +2170,31 @@ function EditItemForm({
   const direction = data.directions.find((entry) => entry.id === item?.directionId);
   const [target, setTarget] = useState(item?.target ?? 0);
   if (!item || !direction) return null;
-  const planMetric = currentPlanMetric(data, scope, planId, direction);
+  const planMetric = currentPlanMetric(direction);
   const savedTarget = planMetric.metric === "checkbox" ? 1 : target;
-  const replaceItem = (current: PlannerData, nextItems: PlanItem[]) => scope === "month"
-    ? { ...current, months: current.months.map((entry) => entry.id === planId ? { ...entry, items: nextItems } : entry) }
-    : { ...current, weeks: current.weeks.map((entry) => entry.id === planId ? { ...entry, items: nextItems } : entry) };
+  const replaceItem = (current: PlannerData, nextItems: PlanItem[]) =>
+    scope === "month"
+      ? {
+          ...current,
+          months: nextItems.length
+            ? current.months.map((entry) =>
+                entry.id === planId ? { ...entry, items: nextItems } : entry,
+              )
+            : current.months.filter((entry) => entry.id !== planId),
+        }
+      : {
+          ...current,
+          weeks: nextItems.length
+            ? current.weeks.map((entry) =>
+                entry.id === planId ? { ...entry, items: nextItems } : entry,
+              )
+            : current.weeks.filter((entry) => entry.id !== planId),
+        };
   return (
     <Modal title={direction.name} onClose={close}>
       <form onSubmit={(event) => {
         event.preventDefault();
-        if (savedTarget <= 0) return;
+        if (savedTarget < 0 || (savedTarget === 0 && !item.paused)) return;
         update((current) => {
           const currentPlan = findPlan(current, scope, planId)!;
           return replaceItem(current, currentPlan.items.map((entry) => entry.id === itemId ? {
@@ -2050,7 +2212,7 @@ function EditItemForm({
         {planMetric.metric === "checkbox" ? (
           <div className="calculation-box"><span>План <strong>Отметка</strong></span></div>
         ) : (
-          <label className="field"><span>План, {planMetric.metric === "percent" ? "%" : planMetric.unit || metricName[planMetric.metric].toLowerCase()}</span><NumericInput min={0.1} value={target} onValueChange={setTarget} required /></label>
+          <label className="field"><span>План, {planMetric.metric === "percent" ? "%" : planMetric.unit || metricName[planMetric.metric].toLowerCase()}</span><NumericInput min={item.paused ? 0 : 0.1} value={target} onValueChange={setTarget} allowDecimal={planMetric.valueFormat === "decimal"} decimalPlaces={planMetric.decimalPlaces} required /></label>
         )}
         {periodStatus(planId, scope) !== (scope === "month" ? "Будущий" : "Будущая") && (
           <p className="plan-change-note">
@@ -2114,48 +2276,48 @@ function PauseForm({
   const item = plan?.items.find((entry) => entry.id === itemId);
   const [reason, setReason] = useState(item?.paused?.reason ?? "Болезнь");
   const [details, setDetails] = useState(item?.paused?.details ?? "");
-  const [target, setTarget] = useState(item?.target ?? 0);
+  const [target, setTarget] = useState(
+    item?.paused
+      ? item.target
+      : defaultPauseTarget(data, scope, planId, itemId),
+  );
   if (!item) return null;
   const reasons = ["Болезнь", "Отпуск или поездка", "Внешние обстоятельства", "Ожидание другого человека", "Изменение доступности", "Изменение приоритетов", "Другое"];
   return (
     <Modal title={scope === "month" ? "Приостановить до конца месяца" : "Приостановить на неделю"} onClose={close}>
       <form className="form-grid" onSubmit={(event) => {
         event.preventDefault();
-        update((current) => {
-          const currentPlan = findPlan(current, scope, planId)!;
-          const date = iso(new Date());
-          const nextItems = currentPlan.items.map((entry) =>
-            entry.id === itemId
-              ? pausePlanItem(entry, {
-                  target,
-                  reason,
-                  details: reason === "Другое" ? details : undefined,
-                  date,
+        update(
+          (current) => {
+            const payload = {
+              itemId,
+              target,
+              reason,
+              details: reason === "Другое" ? details : undefined,
+              date: iso(new Date()),
+            };
+            return scope === "month"
+              ? pauseMonthDirection(current, {
+                  ...payload,
+                  monthId: planId,
                 })
-              : entry,
-          );
-          return scope === "month"
-            ? {
-                ...current,
-                months: current.months.map((entry) =>
-                  entry.id === planId ? { ...entry, items: nextItems } : entry,
-                ),
-              }
-            : {
-                ...current,
-                weeks: current.weeks.map((entry) =>
-                  entry.id === planId ? { ...entry, items: nextItems } : entry,
-                ),
-              };
-        }, "Приостановка сохранена");
+              : pauseWeekDirection(current, {
+                  ...payload,
+                  weekId: planId,
+                });
+          },
+          "Приостановка сохранена",
+        );
         close();
       }}>
         <label className="field field-full"><span>Причина</span><select value={reason} onChange={(e) => setReason(e.target.value)}>{reasons.map((item) => <option key={item}>{item}</option>)}</select></label>
         {reason === "Другое" && <label className="field field-full"><span>Уточнение</span><input value={details} onChange={(e) => setDetails(e.target.value)} required /></label>}
         {item.metric === "checkbox" ? (
-          <div className="calculation-box field-full"><span>План <strong>Отметка</strong></span></div>
+          <div className="calculation-box field-full">
+            <span>Актуальный план <strong>{target > 0 ? "Отметка" : "0"}</strong></span>
+          </div>
         ) : (
-          <label className="field field-full"><span>Актуальный план</span><NumericInput min={0} max={item.originalTarget} value={target} onValueChange={setTarget} required /></label>
+          <label className="field field-full"><span>Актуальный план</span><NumericInput min={0} max={item.originalTarget} value={target} onValueChange={setTarget} allowDecimal={data.directions.find((direction) => direction.id === item.directionId)?.valueFormat === "decimal"} decimalPlaces={data.directions.find((direction) => direction.id === item.directionId)?.decimalPlaces ?? 0} required /></label>
         )}
         {item.metric !== "checkbox" && (
           <div className="calculation-box field-full"><span>Первоначальный план <strong>{formatValue(item.originalTarget, item.metric, item.unit)}</strong></span><span>Исключено <strong>{formatValue(Math.max(0, item.originalTarget - target), item.metric, item.unit)}</strong></span><span>Актуальный план <strong>{formatValue(target, item.metric, item.unit)}</strong></span></div>

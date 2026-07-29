@@ -30,10 +30,24 @@ export const progress = (
   fact: number,
   target: number,
   metric: MetricType,
+  paused = false,
 ) => {
   if (metric === "checkbox") return fact >= 1 ? 100 : 0;
-  return target > 0 ? Math.min(100, Math.round((fact / target) * 100)) : 0;
+  if (target === 0) return paused && fact === 0 ? 100 : 0;
+  return Math.max(0, Math.round((fact / target) * 100));
 };
+
+export const itemProgress = (
+  fact: number,
+  item: PlanItem,
+  mode: "actual" | "original" = "actual",
+) =>
+  progress(
+    fact,
+    mode === "original" ? item.originalTarget : item.target,
+    item.metric,
+    mode === "actual" && Boolean(item.paused),
+  );
 
 export const quickCompletionValue = (
   fact: number,

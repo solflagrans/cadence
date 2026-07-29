@@ -1,12 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type {
-  Direction,
-  PlannerData,
-} from "@/src/domain/planner/model/types";
+import type { PlannerData } from "@/src/domain/planner/model/types";
 import { iso } from "@/src/domain/planner/lib/dates";
-import { itemFact, progress } from "@/src/domain/planner/lib/progress";
+import { itemFact, itemProgress } from "@/src/domain/planner/lib/progress";
 import {
   formatValue,
   metricName,
@@ -21,30 +18,28 @@ import { ProgressBar } from "@/src/shared/ui/progress-bar/progress-bar";
 import { Icon } from "@/src/shared/ui/icon/icon";
 import { IconButton } from "@/src/shared/ui/icon-button/icon-button";
 import type { ModalState } from "../model/modal-state";
+import type { PlannerUpdate } from "@/src/application/planner/planner-provider";
+import {
+  archiveDirection,
+  deleteDirection,
+  directionDeletionImpact,
+  restoreDirection,
+} from "@/src/domain/planner/commands/directions";
 
 export function DirectionsPage({
   data,
   setModal,
+  update,
 }: {
   data: PlannerData;
   setModal: (modal: ModalState) => void;
+  update: PlannerUpdate;
 }) {
-  const [filter, setFilter] = useState<
-    "all" | Direction["availability"] | "in-month" | "outside-month" | "trash"
-  >(() => {
-    if (typeof window === "undefined") return "all";
-    const value = new URLSearchParams(window.location.search).get("filter");
-    if (
-      value === "active" ||
-      value === "paused" ||
-      value === "archived" ||
-      value === "in-month" ||
-      value === "outside-month" ||
-      value === "trash"
-    ) {
-      return value;
-    }
-    return "all";
+  const [view, setView] = useState<"active" | "archive">(() => {
+    if (typeof window === "undefined") return "active";
+    return new URLSearchParams(window.location.search).get("view") === "archive"
+      ? "archive"
+      : "active";
   });
   const [query, setQuery] = useState(() =>
     typeof window === "undefined"
@@ -55,32 +50,26 @@ export function DirectionsPage({
     const params = new URLSearchParams(window.location.search);
     if (query) params.set("query", query);
     else params.delete("query");
-    if (filter !== "all") params.set("filter", filter);
-    else params.delete("filter");
+    if (view === "archive") params.set("view", view);
+    else params.delete("view");
+    params.delete("filter");
     const search = params.toString();
     window.history.replaceState(
       {},
       "",
       `${window.location.pathname}${search ? `?${search}` : ""}`,
     );
-  }, [query, filter]);
+  }, [query, view]);
   const month = data.months.find(
     (item) => item.id === iso(new Date()).slice(0, 7),
   );
   const filtered = data.directions
     .filter((item) => item.name.toLowerCase().includes(query.toLowerCase()))
-    .filter((item) => {
-      if (filter === "trash") return Boolean(item.deletedAt);
-      if (item.deletedAt) return false;
-      if (filter === "all") return true;
-      if (filter === "in-month") {
-        return month?.items.some((plan) => plan.directionId === item.id);
-      }
-      if (filter === "outside-month") {
-        return !month?.items.some((plan) => plan.directionId === item.id);
-      }
-      return item.availability === filter;
-    })
+    .filter((item) =>
+      view === "archive"
+        ? item.availability === "archived"
+        : item.availability !== "archived",
+    )
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 
   return (
@@ -95,7 +84,25 @@ export function DirectionsPage({
           </Button>
         }
       />
-      <div className="filter-bar">
+      <div className="direction-view-tabs tab-bar" role="tablist">
+        <button
+          role="tab"
+          aria-selected={view === "active"}
+          className={view === "active" ? "active" : ""}
+          onClick={() => setView("active")}
+        >
+          Активные
+        </button>
+        <button
+          role="tab"
+          aria-selected={view === "archive"}
+          className={view === "archive" ? "active" : ""}
+          onClick={() => setView("archive")}
+        >
+          Архив
+        </button>
+      </div>
+      <div className="filter-bar direction-search-bar">
         <div className="search-wrap">
           <Icon name="search" size={18} />
           <input
@@ -106,20 +113,6 @@ export function DirectionsPage({
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
-        <select
-          value={filter}
-          onChange={(event) =>
-            setFilter(event.target.value as typeof filter)
-          }
-        >
-          <option value="all">Все направления</option>
-          <option value="active">Активные</option>
-          <option value="paused">Приостановленные</option>
-          <option value="archived">Архивные</option>
-          <option value="in-month">В текущем месяце</option>
-          <option value="outside-month">Не в текущем месяце</option>
-          <option value="trash">Корзина</option>
-        </select>
       </div>
       <section className="card direction-table">
         <div className="table-head">
@@ -159,18 +152,14 @@ export function DirectionsPage({
               <span>
                 <Badge
                   tone={
-                    direction.deletedAt
-                      ? "red"
-                      : direction.availability === "active"
+                    direction.availability === "active"
                       ? "green"
                       : direction.availability === "paused"
                         ? "amber"
                         : "neutral"
                   }
                 >
-                  {direction.deletedAt
-                    ? "Корзина"
-                    : direction.availability === "active"
+                  {direction.availability === "active"
                     ? "Активно"
                     : direction.availability === "paused"
                       ? "Приостановлено"
@@ -185,33 +174,96 @@ export function DirectionsPage({
                 </span>
                 {item && (
                   <ProgressBar
-                    value={progress(fact, item.target, item.metric)}
+                    value={itemProgress(fact, item)}
                     color={direction.color}
                   />
                 )}
               </div>
-              <IconButton
-                icon="more"
-                className="more-button"
-                onClick={() => setModal({ kind: "direction", direction })}
-                label={`Действия: ${direction.name}`}
-              />
+              <div className="direction-row-actions">
+                {direction.availability === "archived" ? (
+                  <>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      onClick={() =>
+                        update(
+                          (current) =>
+                            restoreDirection(current, direction.id),
+                          "Направление восстановлено",
+                        )
+                      }
+                    >
+                      Восстановить
+                    </Button>
+                    <IconButton
+                      icon="trash"
+                      size="small"
+                      label={`Удалить навсегда: ${direction.name}`}
+                      onClick={() => {
+                        const impact = directionDeletionImpact(
+                          data,
+                          direction.id,
+                        );
+                        setModal({
+                          kind: "confirm",
+                          title: "Удалить направление навсегда?",
+                          message:
+                            `Действие необратимо и изменит историю. Будут удалены направление, ${impact.months} мес. планов, ${impact.weeks} нед. планов и ${impact.completions} записей прогресса вместе с приостановками и корректировками.`,
+                          confirmLabel: "Удалить навсегда",
+                          tone: "danger",
+                          onConfirm: () =>
+                            update(
+                              (current) =>
+                                deleteDirection(current, direction.id),
+                              "Направление удалено навсегда",
+                            ),
+                        });
+                      }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="text-link"
+                      onClick={() =>
+                        setModal({ kind: "direction", direction })
+                      }
+                    >
+                      Изменить
+                    </button>
+                    <button
+                      className="text-link"
+                      onClick={() =>
+                        update(
+                          (current) =>
+                            archiveDirection(current, direction.id),
+                          "Направление архивировано",
+                        )
+                      }
+                    >
+                      Архивировать
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           );
         })}
         {!filtered.length && (
           <EmptyState
-            icon={query || filter !== "all" ? "search" : "directions"}
-            title={query || filter !== "all" ? "Ничего не найдено" : "Начните с направления"}
+            icon={query ? "search" : "directions"}
+            title={query ? "Ничего не найдено" : view === "archive" ? "Архив пуст" : "Начните с направления"}
             text={
-              query || filter !== "all"
+              query
                 ? "Направления не найдены"
-                : "Нет направлений"
+                : view === "archive"
+                  ? "Архивных направлений нет"
+                  : "Нет направлений"
             }
-            action={filter === "trash" ? "Показать направления" : "Создать направление"}
+            action={view === "archive" ? "К активным" : "Создать направление"}
             onAction={() => {
-              if (filter === "trash") {
-                setFilter("all");
+              if (view === "archive") {
+                setView("active");
                 setQuery("");
               } else {
                 setModal({ kind: "direction" });
@@ -233,6 +285,9 @@ export function DirectionDetailsPage({
   id: string;
   setModal: (modal: ModalState) => void;
 }) {
+  const [progressMode, setProgressMode] = useState<"actual" | "original">(
+    "actual",
+  );
   const direction = data.directions.find((item) => item.id === id);
   if (!direction) {
     return (
@@ -253,9 +308,13 @@ export function DirectionDetailsPage({
       month,
       item,
       fact,
-      pct: progress(fact, item.target, item.metric),
+      pct: itemProgress(fact, item, progressMode),
     }];
   });
+  const currentMonthId = iso(new Date()).slice(0, 7);
+  const completedPeriods = periods.filter(
+    ({ month }) => month.id < currentMonthId,
+  );
 
   return (
     <>
@@ -275,18 +334,14 @@ export function DirectionDetailsPage({
           <>
             <Badge
               tone={
-                direction.deletedAt
-                  ? "red"
-                  : direction.availability === "active"
+                direction.availability === "active"
                     ? "green"
                     : direction.availability === "paused"
                       ? "amber"
                       : "neutral"
               }
             >
-              {direction.deletedAt
-                ? "Корзина"
-                : direction.availability === "active"
+              {direction.availability === "active"
                 ? "Активно"
                 : direction.availability === "paused"
                   ? "Приостановлено"
@@ -316,21 +371,37 @@ export function DirectionDetailsPage({
       )}
       <div className="stats-grid">
         <div className="stat-card card">
-          <span>Периодов с планом</span><strong>{periods.length}</strong>
+          <span>Завершённых периодов</span><strong>{completedPeriods.length}</strong>
         </div>
         <div className="stat-card card">
           <span>Выполнено</span>
-          <strong>{periods.filter((item) => item.pct >= 100).length}</strong>
+          <strong>{completedPeriods.filter((item) => item.pct >= 100).length}</strong>
         </div>
         <div className="stat-card card">
           <span>Приостановок</span>
           <strong>
-            {periods.filter((item) => item.item.paused).length}
+            {completedPeriods.filter((item) => item.item.paused).length}
           </strong>
         </div>
       </div>
       <section className="card">
-        <div className="section-head"><h2>Планы по месяцам</h2></div>
+        <div className="section-head">
+          <h2>Планы по месяцам</h2>
+          <div className="range-switcher" aria-label="Основа расчёта">
+            <button
+              className={progressMode === "actual" ? "active" : ""}
+              onClick={() => setProgressMode("actual")}
+            >
+              По актуальному плану
+            </button>
+            <button
+              className={progressMode === "original" ? "active" : ""}
+              onClick={() => setProgressMode("original")}
+            >
+              По первоначальному плану
+            </button>
+          </div>
+        </div>
         {periods.length ? (
           <div className="analytics-list">
             {periods.map(({ month, item, fact, pct }) => (
@@ -342,7 +413,13 @@ export function DirectionDetailsPage({
                 <ProgressBar value={pct} color={direction.color} />
                 <span>
                   {formatValue(fact, item.metric, item.unit)} /{" "}
-                  {formatValue(item.target, item.metric, item.unit)}
+                  {formatValue(
+                    progressMode === "actual"
+                      ? item.target
+                      : item.originalTarget,
+                    item.metric,
+                    item.unit,
+                  )}
                 </span>
                 <strong>{pct}%</strong>
               </button>

@@ -1,4 +1,36 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import type { PlannerData } from "@/src/domain/planner/model/types";
+
+const emptyState = (): PlannerData => ({
+  version: 2,
+  activityTypes: [],
+  directions: [],
+  days: [],
+  months: [],
+  weeks: [],
+  completions: [],
+  extraResults: [],
+  reviews: [],
+  settings: {
+    timezone: "Europe/Moscow",
+    weekStartsOn: "monday",
+    timeFormat: "24",
+    language: "ru",
+    scheduleRange: 14,
+    weekReminder: true,
+    monthReminder: true,
+    theme: "light",
+  },
+});
+
+const installState = async (page: Page, state: PlannerData) => {
+  await page.addInitScript((data) => {
+    localStorage.setItem("cadence-planner-v2:guest", JSON.stringify(data));
+  }, state);
+};
+
+const localDate = (date = new Date()) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
 test("opens Cadence and navigates to plans", async ({ page }) => {
   await page.goto("/");
@@ -188,4 +220,180 @@ test("current week is highlighted in the month and desktop sections have no icon
   await page.goto(`/plans/${monthId}`);
   await expect(page.locator(".week-tabs .current-week")).toHaveCount(1);
   await expect(page.locator(".sidebar-nav svg")).toHaveCount(0);
+});
+
+test("archived directions are separated and used metrics are locked", async ({
+  page,
+}) => {
+  const state = emptyState();
+  state.directions = [{
+    id: "active",
+    name: "Активное направление",
+    metric: "count",
+    unit: "раз",
+    valueFormat: "integer",
+    decimalPlaces: 0,
+    color: "#336699",
+    availability: "active",
+    metricHistory: [],
+  }, {
+    id: "archived",
+    name: "Архивное направление",
+    metric: "duration",
+    unit: "ч.",
+    valueFormat: "decimal",
+    decimalPlaces: 2,
+    color: "#663399",
+    availability: "archived",
+    metricHistory: [],
+  }];
+  state.months = [{
+    id: "2026-07",
+    month: "2026-07",
+    items: [{
+      id: "used",
+      directionId: "active",
+      originalTarget: 10,
+      target: 10,
+      metric: "count",
+      unit: "раз",
+      history: [],
+    }],
+  }];
+  await installState(page, state);
+  await page.goto("/directions");
+
+  await expect(page.getByText("Активное направление", { exact: true }))
+    .toBeVisible();
+  await expect(page.getByText("Архивное направление", { exact: true }))
+    .toHaveCount(0);
+  await page.getByRole("tab", { name: "Архив" }).click();
+  await expect(page.getByText("Архивное направление", { exact: true }))
+    .toBeVisible();
+  await expect(page.getByRole("button", { name: "Восстановить" }))
+    .toBeVisible();
+
+  await page.getByRole("tab", { name: "Активные" }).click();
+  await page.getByRole("button", { name: "Изменить" }).click();
+  await expect(page.getByLabel("Метрика")).toBeDisabled();
+  await expect(page.getByText(/Метрику нельзя изменить/)).toBeVisible();
+});
+
+test("schedule truncates long activity names and shows hidden count", async ({
+  page,
+}) => {
+  const state = emptyState();
+  state.activityTypes = Array.from({ length: 5 }, (_, index) => ({
+    id: `activity-${index}`,
+    name: `Очень длинное название типа деятельности номер ${index + 1}`,
+    color: ["#335544", "#446688", "#775588", "#996644", "#667744"][index],
+    icon: "circle",
+    order: index,
+    archived: false,
+  }));
+  state.days = [{
+    date: localDate(),
+    breaks: [],
+    segments: state.activityTypes.map((activity) => ({
+      activityId: activity.id,
+      percent: 20,
+    })),
+  }];
+  await installState(page, state);
+  await page.goto("/schedule");
+
+  const today = page.locator(".calendar-day.today");
+  await expect(today.locator(".calendar-hidden-count")).toHaveText("+3");
+  await expect(today.locator(".calendar-activity-name")).toHaveCount(2);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test("work period can be removed without deleting the day composition", async ({
+  page,
+}) => {
+  const state = emptyState();
+  state.activityTypes = [{
+    id: "work",
+    name: "Работа",
+    color: "#335544",
+    icon: "circle",
+    order: 0,
+    archived: false,
+  }];
+  state.days = [{
+    date: localDate(),
+    segments: [{ activityId: "work", percent: 100 }],
+    workStart: "09:00",
+    workEnd: "18:00",
+    breaks: [],
+  }];
+  await installState(page, state);
+  await page.goto("/today");
+  await page.getByRole("button", { name: "Изменить", exact: true }).click();
+  await page.getByRole("button", { name: "Убрать рабочий период" }).click();
+  await expect(page.getByText("09:00", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Работа", { exact: true })).toBeVisible();
+});
+
+test("mobile week page shows only the nearest breadcrumb parent", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  await page.goto("/weeks/2026-07-27");
+  const visibleCrumbs = page.locator(".page-breadcrumbs span:visible");
+  await expect(visibleCrumbs).toHaveCount(1);
+  await expect(visibleCrumbs).toContainText("Июль 2026");
+  await expect(
+    page.getByRole("heading", { name: /27 июля.*2 августа/i }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    ),
+  ).toBeLessThanOrEqual(1);
+});
+
+test("paused zero plan is displayed as fully completed actual plan", async ({
+  page,
+}) => {
+  const state = emptyState();
+  state.directions = [{
+    id: "paused",
+    name: "Приостановленное направление",
+    metric: "count",
+    unit: "раз",
+    valueFormat: "integer",
+    decimalPlaces: 0,
+    color: "#335544",
+    availability: "active",
+    metricHistory: [],
+  }];
+  state.weeks = [{
+    id: "2026-07-27",
+    start: "2026-07-27",
+    monthId: "2026-07",
+    items: [{
+      id: "paused-item",
+      directionId: "paused",
+      originalTarget: 3,
+      target: 0,
+      metric: "count",
+      unit: "раз",
+      paused: {
+        reason: "Болезнь",
+        date: "2026-07-29",
+        excluded: 3,
+      },
+      history: [],
+    }],
+  }];
+  await installState(page, state);
+  await page.goto("/weeks/2026-07-27");
+  await expect(page.locator(".plan-row .row-value")).toContainText(
+    "из 0 раз · 100%",
+  );
+  await expect(page.getByText("Болезнь", { exact: true })).toBeVisible();
 });

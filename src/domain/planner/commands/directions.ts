@@ -21,30 +21,39 @@ export const updateDirection = (
 export const deleteDirection = (
   state: PlannerData,
   directionId: string,
-): PlannerData => ({
-  ...state,
-  directions: state.directions.filter((item) => item.id !== directionId),
-  months: state.months.map((month) => ({
-    ...month,
-    items: month.items.filter((item) => item.directionId !== directionId),
-  })),
-  weeks: state.weeks.map((week) => ({
-    ...week,
-    items: week.items.filter((item) => item.directionId !== directionId),
-  })),
-  completions: state.completions.filter(
-    (completion) => completion.directionId !== directionId,
-  ),
-});
+): PlannerData => {
+  const months = state.months.flatMap((month) => {
+    const items = month.items.filter(
+      (item) => item.directionId !== directionId,
+    );
+    return items.length ? [{ ...month, items }] : [];
+  });
+  const weeks = state.weeks.flatMap((week) => {
+    const items = week.items.filter(
+      (item) => item.directionId !== directionId,
+    );
+    return items.length ? [{ ...week, items }] : [];
+  });
+  return {
+    ...state,
+    directions: state.directions.filter((item) => item.id !== directionId),
+    months,
+    weeks,
+    completions: state.completions.filter(
+      (completion) => completion.directionId !== directionId,
+    ),
+  };
+};
 
-export const moveDirectionToTrash = (
+export const archiveDirection = (
   state: PlannerData,
   directionId: string,
-  deletedAt: string,
 ): PlannerData => ({
   ...state,
   directions: state.directions.map((direction) =>
-    direction.id === directionId ? { ...direction, deletedAt } : direction,
+    direction.id === directionId
+      ? { ...direction, availability: "archived" }
+      : direction,
   ),
 });
 
@@ -53,10 +62,38 @@ export const restoreDirection = (
   directionId: string,
 ): PlannerData => ({
   ...state,
-  directions: state.directions.map((direction) => {
-    if (direction.id !== directionId) return direction;
-    const restored = { ...direction };
-    delete restored.deletedAt;
-    return restored;
-  }),
+  directions: state.directions.map((direction) =>
+    direction.id === directionId
+      ? { ...direction, availability: "active" }
+      : direction,
+  ),
 });
+
+export const directionDeletionImpact = (
+  state: PlannerData,
+  directionId: string,
+) => ({
+  months: state.months.filter((month) =>
+    month.items.some((item) => item.directionId === directionId),
+  ).length,
+  weeks: state.weeks.filter((week) =>
+    week.items.some((item) => item.directionId === directionId),
+  ).length,
+  completions: state.completions.filter(
+    (completion) => completion.directionId === directionId,
+  ).length,
+});
+
+export const isDirectionMetricUsed = (
+  state: PlannerData,
+  directionId: string,
+) =>
+  state.months.some((month) =>
+    month.items.some((item) => item.directionId === directionId),
+  ) ||
+  state.weeks.some((week) =>
+    week.items.some((item) => item.directionId === directionId),
+  ) ||
+  state.completions.some(
+    (completion) => completion.directionId === directionId,
+  );

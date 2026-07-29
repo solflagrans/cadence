@@ -1,4 +1,5 @@
 export type MetricType = "count" | "duration" | "percent" | "checkbox";
+export type ValueFormat = "integer" | "decimal";
 
 export type ActivityType = {
   id: string;
@@ -15,10 +16,17 @@ export type Direction = {
   description?: string;
   metric: MetricType;
   unit: string;
+  valueFormat: ValueFormat;
+  decimalPlaces: number;
   color: string;
   availability: "active" | "paused" | "archived";
-  deletedAt?: string;
-  metricHistory: { metric: MetricType; unit: string; since: string }[];
+  metricHistory: {
+    metric: MetricType;
+    unit: string;
+    valueFormat: ValueFormat;
+    decimalPlaces: number;
+    since: string;
+  }[];
 };
 
 export type DaySegment = { activityId: string; percent: number };

@@ -2,7 +2,7 @@ import type {
   PlannerData,
   PlanItem,
 } from "@/src/domain/planner/model/types";
-import { itemFact, progress } from "@/src/domain/planner/lib/progress";
+import { itemFact, itemProgress } from "@/src/domain/planner/lib/progress";
 import { formatValue } from "@/app/lib/data";
 import { Badge } from "@/src/shared/ui/badge/badge";
 import { ProgressBar } from "@/src/shared/ui/progress-bar/progress-bar";
@@ -34,7 +34,7 @@ export function PlanRows({
         );
         if (!direction) return null;
         const fact = itemFact(data, item, weekId);
-        const percent = progress(fact, item.target, item.metric);
+        const percent = itemProgress(fact, item);
         return (
           <article className="plan-row" key={item.id}>
             <button
@@ -66,7 +66,8 @@ export function PlanRows({
               <span className="row-value">
                 <strong>{formatValue(fact, item.metric, item.unit)}</strong>
                 <span>
-                  из {formatValue(item.target, item.metric, item.unit)}
+                  из {formatValue(item.target, item.metric, item.unit)} ·{" "}
+                  {percent}%
                 </span>
               </span>
             </button>
@@ -82,7 +83,7 @@ export function PlanRows({
                     })
                   }
                 >
-                  <Icon name="plus" size={14} /> Факт
+                  <Icon name="plus" size={14} /> Прогресс
                 </button>
               )}
               <IconButton

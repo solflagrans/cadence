@@ -10,10 +10,19 @@ export const sanitizeNumericInput = (
   candidate: string,
   previous: string,
   allowDecimal = true,
+  decimalPlaces = 2,
 ): string => {
   const normalized = candidate.replace(",", ".");
   const pattern = allowDecimal ? /^\d*(?:\.\d*)?$/ : /^\d*$/;
-  return pattern.test(normalized) ? normalized : previous;
+  if (!pattern.test(normalized)) return previous;
+  if (
+    allowDecimal &&
+    normalized.includes(".") &&
+    normalized.split(".")[1].length > decimalPlaces
+  ) {
+    return previous;
+  }
+  return normalized;
 };
 
 export const numericValue = (value: string): number | null => {
@@ -26,6 +35,7 @@ export function NumericInput({
   value,
   onValueChange,
   allowDecimal = true,
+  decimalPlaces = 2,
   min,
   max,
   required = false,
@@ -39,6 +49,7 @@ export function NumericInput({
   value: number;
   onValueChange: (value: number) => void;
   allowDecimal?: boolean;
+  decimalPlaces?: number;
   min?: number;
   max?: number;
 }) {
@@ -84,6 +95,7 @@ export function NumericInput({
           event.target.value,
           draftRef.current,
           allowDecimal,
+          decimalPlaces,
         );
         if (next !== event.target.value) event.target.value = next;
         draftRef.current = next;

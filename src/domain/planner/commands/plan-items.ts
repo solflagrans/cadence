@@ -29,22 +29,17 @@ export const pausePlanItem = (
 });
 
 export const resumePlanItem = (item: PlanItem, date: string): PlanItem => {
-  const target = item.originalTarget;
   return {
     ...item,
-    target,
     paused: undefined,
-    history:
-      item.target !== target
-        ? [
-            ...item.history,
-            {
-              date,
-              from: item.target,
-              to: target,
-              reason: "Возобновление",
-            },
-          ]
-        : item.history,
+    history: [
+      ...item.history,
+      {
+        date,
+        from: item.target,
+        to: item.target,
+        reason: "Возобновление",
+      },
+    ],
   };
 };

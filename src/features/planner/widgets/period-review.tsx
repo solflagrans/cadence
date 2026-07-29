@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import type { PlannerUpdate } from "@/src/application/planner/planner-provider";
-import { itemFact, progress } from "@/src/domain/planner/lib/progress";
+import { itemFact, itemProgress } from "@/src/domain/planner/lib/progress";
 import type {
   PlannerData,
   PlanItem,
@@ -9,7 +10,6 @@ import type {
 import { iso, monthIdForWeek } from "@/src/domain/planner/lib/dates";
 import { Button } from "@/src/shared/ui/button/button";
 import { Icon } from "@/src/shared/ui/icon/icon";
-import { ProgressBar } from "@/src/shared/ui/progress-bar/progress-bar";
 
 export function PeriodReview({
   data,
@@ -32,23 +32,21 @@ export function PeriodReview({
   onPlanNext: () => void;
   canPlanNext: boolean;
 }) {
+  const [progressMode, setProgressMode] = useState<"actual" | "original">(
+    "actual",
+  );
   const existing = data.reviews.find(
     (item) => item.scope === scope && item.periodId === periodId,
   );
   const results = items.map((item) => {
     const fact = itemFact(data, item, weekId);
-    return { item, fact, pct: progress(fact, item.target, item.metric) };
+    return { item, fact, pct: itemProgress(fact, item, progressMode) };
   });
   const counts = {
     done: results.filter((item) => item.pct >= 100).length,
     partial: results.filter((item) => item.pct > 0 && item.pct < 100).length,
     untouched: results.filter((item) => item.pct === 0).length,
   };
-  const overall = results.length
-    ? Math.round(
-        results.reduce((sum, item) => sum + item.pct, 0) / results.length,
-      )
-    : 0;
   const extras = data.extraResults.filter((item) =>
     scope === "week"
       ? item.weekId === periodId
@@ -88,9 +86,21 @@ export function PeriodReview({
           </span>
           <h2>{isPast ? "Итоги периода" : "Как идёт план"}</h2>
         </div>
-        <strong className="review-score">{overall}%</strong>
+        <div className="range-switcher" aria-label="Основа расчёта">
+          <button
+            className={progressMode === "actual" ? "active" : ""}
+            onClick={() => setProgressMode("actual")}
+          >
+            По актуальному плану
+          </button>
+          <button
+            className={progressMode === "original" ? "active" : ""}
+            onClick={() => setProgressMode("original")}
+          >
+            По первоначальному плану
+          </button>
+        </div>
       </div>
-      <ProgressBar value={overall} />
       <div className="review-stats">
         <span><strong>{counts.done}</strong> выполнено</span>
         <span><strong>{counts.partial}</strong> в процессе</span>

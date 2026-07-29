@@ -31,10 +31,15 @@ export const pluralize = (
   return forms[2];
 };
 
-export const monthName = (id: string) =>
-  new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" }).format(
-    parseDate(`${id}-01`),
-  );
+export const monthName = (id: string) => {
+  const value = new Intl.DateTimeFormat("ru-RU", {
+    month: "long",
+    year: "numeric",
+  })
+    .format(parseDate(`${id}-01`))
+    .replace(/\s+г\.$/u, "");
+  return value.charAt(0).toUpperCase() + value.slice(1);
+};
 
 export const dateLabel = (
   value: string,
@@ -50,13 +55,13 @@ export const weekLabel = (start: string) => {
   const last = addDays(first, 6);
   const firstLabel = new Intl.DateTimeFormat("ru-RU", {
     day: "numeric",
-    month: first.getMonth() === last.getMonth() ? undefined : "short",
+    month: "long",
   }).format(first);
   const lastLabel = new Intl.DateTimeFormat("ru-RU", {
     day: "numeric",
-    month: "short",
+    month: "long",
   }).format(last);
-  return `${firstLabel}–${lastLabel}`;
+  return `${firstLabel} – ${lastLabel}`;
 };
 
 export const metricName: Record<MetricType, string> = {
@@ -76,6 +81,6 @@ export const formatValue = (
   }
   if (metric === "percent") return `${value}%`;
   return `${new Intl.NumberFormat("ru-RU", {
-    maximumFractionDigits: 1,
+    maximumFractionDigits: 2,
   }).format(value)} ${unit}`;
 };
