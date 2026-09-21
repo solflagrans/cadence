@@ -1,5 +1,3 @@
-import PlannerApp from "./planner-app";
-
 export default function Home() {
-  return <PlannerApp initialRoute={{ page: "overview" }} />;
+  return null;
 }

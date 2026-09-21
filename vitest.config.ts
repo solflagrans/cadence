@@ -1,17 +1,15 @@
-import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./", import.meta.url)),
-    },
-  },
+  plugins: [react()],
+  resolve: { alias: { "@": fileURLToPath(new URL(".", import.meta.url)) } },
   test: {
     environment: "node",
-    include: ["tests/unit/**/*.test.ts"],
-    coverage: {
-      reporter: ["text", "html"],
-    },
+    include: ["tests/unit/**/*.test.{ts,tsx}"],
+    setupFiles: ["./tests/setup.ts"],
+    clearMocks: true,
+    restoreMocks: true,
   },
 });

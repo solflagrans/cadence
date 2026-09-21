@@ -1,49 +1,30 @@
-import { getAuthServer } from "@/src/infrastructure/auth/neon-auth-server";
+import type { NextRequest } from "next/server";
+
+import { getAuth } from "@/src/shared/auth/server";
+import { ConfigurationError } from "@/src/shared/config/env";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
-type AuthContext = {
-  params: Promise<{ path: string[] }>;
-};
+type Context = { params: Promise<{ path: string[] }> };
 
-const unavailable = (): Response =>
-  Response.json(
-    { error: "Authentication is not configured" },
-    { status: 503, headers: { "Cache-Control": "no-store" } },
-  );
-
-const logRejectedAuthRequest = async (
-  response: Response,
-  path: string[],
-): Promise<void> => {
-  if (response.ok) return;
-  console.warn({
-    event: "auth_request_rejected",
-    path: path.join("/"),
-    status: response.status,
-    detail: (await response.clone().text()).slice(0, 1000),
-  });
-};
-
-export async function GET(
-  request: Request,
-  context: AuthContext,
-): Promise<Response> {
-  const auth = getAuthServer();
-  if (!auth) return unavailable();
-  const response = await auth.handler().GET(request, context);
-  await logRejectedAuthRequest(response, (await context.params).path);
-  return response;
+async function handle(method: "GET" | "POST", request: NextRequest, context: Context) {
+  try {
+    return await getAuth().handler()[method](request, context);
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      return Response.json(
+        { error: "Authentication is not configured" },
+        { status: 503, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    throw error;
+  }
 }
 
-export async function POST(
-  request: Request,
-  context: AuthContext,
-): Promise<Response> {
-  const auth = getAuthServer();
-  if (!auth) return unavailable();
-  const response = await auth.handler().POST(request, context);
-  await logRejectedAuthRequest(response, (await context.params).path);
-  return response;
+export function GET(request: NextRequest, context: Context) {
+  return handle("GET", request, context);
+}
+
+export function POST(request: NextRequest, context: Context) {
+  return handle("POST", request, context);
 }

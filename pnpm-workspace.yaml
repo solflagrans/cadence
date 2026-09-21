@@ -6,3 +6,8 @@ allowBuilds:
   esbuild: true
   sharp: true
   unrs-resolver: true
+
+# Keep Neon Auth transitive peers aligned with its pinned Better Auth release.
+overrides:
+  "@better-auth/core": "1.6.23"
+  "@better-auth/api-key": "1.6.23"
