@@ -1,1 +1,13 @@
-{"version":"7","dialect":"postgresql","entries":[]}
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789958088362,
+      "tag": "0000_monthly_planning",
+      "breakpoints": true
+    }
+  ]
+}

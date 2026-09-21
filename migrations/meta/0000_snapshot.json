@@ -1,0 +1,279 @@
+{
+  "id": "c131c9de-0095-48ce-8f06-f10dda396aa5",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.monthly_plans": {
+      "name": "monthly_plans",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "priority_id": {
+          "name": "priority_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "month": {
+          "name": "month",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "metric_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        }
+      },
+      "indexes": {
+        "monthly_plans_owner_month_idx": {
+          "name": "monthly_plans_owner_month_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "month",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "monthly_plans_owned_metric_fk": {
+          "name": "monthly_plans_owned_metric_fk",
+          "tableFrom": "monthly_plans",
+          "tableTo": "priorities",
+          "columnsFrom": [
+            "owner_id",
+            "priority_id",
+            "kind"
+          ],
+          "columnsTo": [
+            "owner_id",
+            "id",
+            "kind"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "monthly_plans_owner_priority_month_unique": {
+          "name": "monthly_plans_owner_priority_month_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_id",
+            "priority_id",
+            "month"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "monthly_plans_month_valid": {
+          "name": "monthly_plans_month_valid",
+          "value": "\"monthly_plans\".\"month\" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$' and left(\"monthly_plans\".\"month\", 4) <> '0000'"
+        },
+        "monthly_plans_amount_valid": {
+          "name": "monthly_plans_amount_valid",
+          "value": "\"monthly_plans\".\"amount\" > 0 and ((\"monthly_plans\".\"kind\" in ('time', 'quantity') and \"monthly_plans\".\"amount\" <= 2147483647 and \"monthly_plans\".\"amount\" = trunc(\"monthly_plans\".\"amount\")) or (\"monthly_plans\".\"kind\" = 'volume' and \"monthly_plans\".\"amount\" <= 999999999.999 and \"monthly_plans\".\"amount\" = trunc(\"monthly_plans\".\"amount\", 3)))"
+        },
+        "monthly_plans_version_valid": {
+          "name": "monthly_plans_version_valid",
+          "value": "\"monthly_plans\".\"version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.planning_operations": {
+      "name": "planning_operations",
+      "schema": "",
+      "columns": {
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_id": {
+          "name": "operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request": {
+          "name": "request",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "result": {
+          "name": "result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "planning_operations_owner_id_operation_id_pk": {
+          "name": "planning_operations_owner_id_operation_id_pk",
+          "columns": [
+            "owner_id",
+            "operation_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.priorities": {
+      "name": "priorities",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "metric_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unit": {
+          "name": "unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "archived": {
+          "name": "archived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "priorities_owner_id_kind_unique": {
+          "name": "priorities_owner_id_kind_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_id",
+            "id",
+            "kind"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "priorities_owner_valid": {
+          "name": "priorities_owner_valid",
+          "value": "length(trim(\"priorities\".\"owner_id\")) > 0"
+        },
+        "priorities_name_valid": {
+          "name": "priorities_name_valid",
+          "value": "length(trim(\"priorities\".\"name\")) between 1 and 120"
+        },
+        "priorities_unit_valid": {
+          "name": "priorities_unit_valid",
+          "value": "(\"priorities\".\"kind\" = 'time' and \"priorities\".\"unit\" is null) or (\"priorities\".\"kind\" <> 'time' and \"priorities\".\"unit\" is not null and length(trim(\"priorities\".\"unit\")) between 1 and 32)"
+        },
+        "priorities_version_valid": {
+          "name": "priorities_version_valid",
+          "value": "\"priorities\".\"version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.metric_kind": {
+      "name": "metric_kind",
+      "schema": "public",
+      "values": [
+        "time",
+        "quantity",
+        "volume"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
