@@ -31,7 +31,8 @@ pnpm dev
   `withDatabase` освобождает соединения после операции и поддерживает `db.transaction`.
 - `src/shared/config/env.ts` — проверка настроек через Zod при использовании сервиса.
 - Radix Primitives (`radix-ui`), Lucide React; CSS Modules поддерживаются Next.js,
-  общие CSS-переменные заданы в `app/globals.css`.
+  общие CSS-переменные заданы в `src/shared/styles/tokens.css` и подключены
+  в `app/globals.css`. Правила использования — в `src/shared/styles/README.md`.
 - date-fns и `@date-fns/tz` — основа для календарных расчётов в часовом поясе пользователя.
   Предметные правила недели и месяца пока не реализованы.
 

@@ -1,11 +1,8 @@
-:root {
-  color-scheme: light;
-  --color-background: #ffffff;
-  --color-foreground: #171717;
-  --font-sans: Arial, Helvetica, sans-serif;
-}
+@import "../src/shared/styles/tokens.css";
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -19,6 +16,10 @@ body {
   background: var(--color-background);
   color: var(--color-foreground);
   font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body);
+  letter-spacing: var(--letter-spacing-body);
 }
 
 button,
@@ -26,4 +27,14 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+::selection {
+  background: var(--color-selection);
+  color: var(--color-foreground);
 }
